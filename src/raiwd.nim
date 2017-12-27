@@ -174,12 +174,31 @@ proc accountsBalances(spec: JsonNode): JsonNode =
   var spec = parseJson(response.body)
   return %*{"balances": spec["balances"]}    
 
+proc passwordChange(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"changed": spec["changed"]}    
+
+proc passwordEnter(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"valid": spec["valid"]}    
+
+proc passwordValid(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"valid": spec["valid"]}    
+
+proc walletLocked(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"locked": spec["locked"]}    
+        
 proc send(spec: JsonNode): JsonNode =
   var response = callRai(spec)
   var spec = parseJson(response.body)
   return %*{"block": spec["block"]}    
   
-
 proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
   var action = spec["action"].str
@@ -208,6 +227,18 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   of "accounts_balances":
     echo "Accounts balances: " & $spec
     return accountsBalances(spec)
+  of "password_change":
+    echo "Password change: " & $spec
+    return passwordChange(spec)
+  of "password_enter":
+    echo "Password enter: " & $spec
+    return passwordEnter(spec)
+  of "password_valid":
+    echo "Password valid: " & $spec
+    return passwordValid(spec)
+  of "wallet_locked":
+    echo "Wallet locked: " & $spec
+    return walletLocked(spec)                
   of "send":
     echo "Send: " & $spec
     return send(spec)
