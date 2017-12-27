@@ -136,15 +136,34 @@ proc callRai(spec: JsonNode): httpclient.Response =
 
 proc walletCreate(spec: JsonNode): JsonNode =
   var response = callRai(spec)
-  echo "Status from wallet create: " & response.status
   var spec = parseJson(response.body)
   return %*{"wallet": spec["wallet"]}
   
 proc accountCreate(spec: JsonNode): JsonNode =
   var response = callRai(spec)
-  echo "Status from account create: " & response.status
   var spec = parseJson(response.body)
   return %*{"account": spec["account"]}
+
+proc accountList(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"accounts": spec["accounts"]}
+
+proc accountRemove(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"removed": spec["removed"]}    
+
+proc accountHistory(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"history": spec["history"]}    
+  
+
+proc accountsBalances(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"balances": spec["balances"]}    
   
 proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
@@ -156,6 +175,18 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   of "account_create":
     echo "Account create: " & $spec
     return accountCreate(spec)
+  of "account_list":
+    echo "Account list: " & $spec
+    return accountList(spec)
+  of "account_remove":
+    echo "Account remove: " & $spec
+    return accountRemove(spec)
+  of "account_history":
+    echo "Account history: " & $spec
+    return accountHistory(spec)
+  of "accounts_balances":
+    echo "Accounts balances: " & $spec
+    return accountsBalances(spec)
   return %*{"error": "unknown action"}
 
 # Jester routes
@@ -184,7 +215,7 @@ routes:
     resp($res, "application/json")
 
 # Start MQTT messenger thread
-startMessenger(serverUrl, clientID, username, password)
+#startMessenger(serverUrl, clientID, username, password)
 
 # Start Jester
 runForever()
