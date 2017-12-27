@@ -134,6 +134,11 @@ proc callRai(spec: JsonNode): httpclient.Response =
   client.headers = newHttpHeaders({ "Content-Type": "application/json" })
   return client.request(raiUrl, httpMethod = HttpPost, body = $spec)
 
+proc availableSupply(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"available": spec["available"]}
+
 proc walletCreate(spec: JsonNode): JsonNode =
   var response = callRai(spec)
   var spec = parseJson(response.body)
@@ -203,6 +208,9 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
   var action = spec["action"].str
   case action
+  of "available_supply":
+    echo "Available supply: " & $spec
+    return walletCreate(spec)
   of "wallet_create":
     echo "Wallet create: " & $spec
     return walletCreate(spec)
