@@ -1,0 +1,6 @@
+builds
+bin
+nimcache
+raiwd
+raiwd.conf
+tests/all
