@@ -138,11 +138,21 @@ proc walletCreate(spec: JsonNode): JsonNode =
   var response = callRai(spec)
   var spec = parseJson(response.body)
   return %*{"wallet": spec["wallet"]}
+
+proc walletChangeSeed(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"success": spec["success"]}
   
 proc accountCreate(spec: JsonNode): JsonNode =
   var response = callRai(spec)
   var spec = parseJson(response.body)
   return %*{"account": spec["account"]}
+
+proc accountKey(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"key": spec["key"]}
 
 proc accountList(spec: JsonNode): JsonNode =
   var response = callRai(spec)
@@ -158,13 +168,18 @@ proc accountHistory(spec: JsonNode): JsonNode =
   var response = callRai(spec)
   var spec = parseJson(response.body)
   return %*{"history": spec["history"]}    
-  
 
 proc accountsBalances(spec: JsonNode): JsonNode =
   var response = callRai(spec)
   var spec = parseJson(response.body)
   return %*{"balances": spec["balances"]}    
+
+proc send(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  var spec = parseJson(response.body)
+  return %*{"block": spec["block"]}    
   
+
 proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
   var action = spec["action"].str
@@ -172,9 +187,15 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   of "wallet_create":
     echo "Wallet create: " & $spec
     return walletCreate(spec)
+  of "wallet_change_seed":
+    echo "Wallet change seed: " & $spec
+    return walletChangeSeed(spec)
   of "account_create":
     echo "Account create: " & $spec
     return accountCreate(spec)
+  of "account_key":
+    echo "Account key: " & $spec
+    return accountKey(spec)
   of "account_list":
     echo "Account list: " & $spec
     return accountList(spec)
@@ -187,6 +208,9 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   of "accounts_balances":
     echo "Accounts balances: " & $spec
     return accountsBalances(spec)
+  of "send":
+    echo "Send: " & $spec
+    return send(spec)
   return %*{"error": "unknown action"}
 
 # Jester routes
