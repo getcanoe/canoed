@@ -129,17 +129,23 @@ proc startMessenger(serverUrl, clientID, username, password: string) =
   addQuitProc(stopMessenger)
   connectMQTT(serverUrl, clientID, username, password)
 
-proc walletCreate(spec: JsonNode): JsonNode =
+proc callRai(spec: JsonNode): httpclient.Response =
   let client = newHttpClient()
   client.headers = newHttpHeaders({ "Content-Type": "application/json" })
-  #let body = %*{
-  #  "data": "some text"
-  #}
-  let response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
+  return client.request(raiUrl, httpMethod = HttpPost, body = $spec)
+
+proc walletCreate(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
   echo "Status from wallet create: " & response.status
   var spec = parseJson(response.body)
   return %*{"wallet": spec["wallet"]}
-
+  
+proc accountCreate(spec: JsonNode): JsonNode =
+  var response = callRai(spec)
+  echo "Status from account create: " & response.status
+  var spec = parseJson(response.body)
+  return %*{"account": spec["account"]}
+  
 proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
   var action = spec["action"].str
@@ -147,6 +153,9 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   of "wallet_create":
     echo "Wallet create: " & $spec
     return walletCreate(spec)
+  of "account_create":
+    echo "Account create: " & $spec
+    return accountCreate(spec)
   return %*{"error": "unknown action"}
 
 # Jester routes
