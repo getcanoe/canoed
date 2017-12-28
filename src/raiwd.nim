@@ -210,7 +210,7 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   case action
   of "available_supply":
     echo "Available supply: " & $spec
-    return walletCreate(spec)
+    return availableSupply(spec)
   of "wallet_create":
     echo "Wallet create: " & $spec
     return walletCreate(spec)
@@ -275,7 +275,8 @@ routes:
       stderr.writeLine "Unable to parse JSON body: " & request.body      
       resp Http400, "Unable to parse JSON body"
     var res = performRaiRPC(spec)
-    resp($res, "application/json")
+    result = resp($res, "application/json")
+    result
 
 # Start MQTT messenger thread
 #startMessenger(serverUrl, clientID, username, password)
