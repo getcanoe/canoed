@@ -275,8 +275,7 @@ routes:
       stderr.writeLine "Unable to parse JSON body: " & request.body      
       resp Http400, "Unable to parse JSON body"
     var res = performRaiRPC(spec)
-    result = resp($res, "application/json")
-    result
+    resp($res, "application/json")
 
 # Start MQTT messenger thread
 #startMessenger(serverUrl, clientID, username, password)
