@@ -1,8 +1,8 @@
-# RaiWd
-RaiW is a backend for the RaiW RaiBlocks wallet. It uses a rai_node and creates a middle layer for filtering out RPC calls and holding external state.
+# Canoed
+Canoed is a backend for the Canoe RaiBlocks wallet. It uses a rai_node and creates a middle layer for filtering out RPC calls and holding external state.
 
 ## Installing Nim
-RaiWd is written in Nim, a modern high performance language that produces small and fast binaries by compiling via C. We first need to install Nim.
+Canoed is written in Nim, a modern high performance language that produces small and fast binaries by compiling via C. We first need to install Nim.
 
 ### Linux
 For **regular Linux** you can install Nim the easiest using [choosenim](https://github.com/dom96/choosenim):
@@ -11,7 +11,7 @@ For **regular Linux** you can install Nim the easiest using [choosenim](https://
 
 That will install the `nim` compiler and the `nimble` package manager.
 
-## Building Raiwd
+## Building Canoed
 ### Prerequisites
 First we need to compile the [Paho C library](https://www.eclipse.org/paho/clients/c/) for communicating with MQTT. It's not available as far as I could tell via packages. This library is the de facto standard for MQTT communication and used in tons of projects.
 
@@ -28,21 +28,21 @@ Then we can build and install Paho C:
     sudo ldconfig
 
 ### Building
-Now we are ready to build **raiwd**.
+Now we are ready to build **canoed**.
 
-Enter the `raiwd` directory and build it using the command `nimble build` or both build and install it using `nimble install`. This will download and install Nim dependencies automatically.
+Enter the `canoed` directory and build it using the command `nimble build` or both build and install it using `nimble install`. This will download and install Nim dependencies automatically.
 
 ### Adding service
-Create `/etc/systemd/system/raiwd.service`:
+Create `/etc/systemd/system/canoed.service`:
 
     [Unit]
-    Description=RaiWd
+    Description=Canoed
     After=network.target
 
     [Service]
-    User=raiw
-    WorkingDirectory=/home/raiw
-    ExecStart=/home/raiw/.nimble/bin/raiwd
+    User=canoe
+    WorkingDirectory=/home/canoe
+    ExecStart=/home/canoe/.nimble/bin/canoed
     Restart=always
     RestartSec=60
         
@@ -52,6 +52,6 @@ Create `/etc/systemd/system/raiwd.service`:
 Then enable it:
 
     systemctl daemon-reload
-    systemctl enable raiwd
-    systemctl start raiwd
+    systemctl enable canoed
+    systemctl start canoed
 
