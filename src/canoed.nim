@@ -7,18 +7,33 @@
 # * Jester runs in the main thread, asynchronously. 
 # * MQTT is handled in the messengerThread and uses one Channel to publish, and another to get messages.
 
-import jester, asyncdispatch, mqtt, MQTTClient, asyncnet, htmlgen, json, logging, os, strutils,
+import jester, posix, asyncdispatch, mqtt, MQTTClient, asyncnet, htmlgen, json, os, strutils,
   sequtils, nuuid, tables, osproc, base64, threadpool, docopt, streams, pegs, httpclient
 
-import morelogging as log
 
-let log = newAsyncFileLogger()
+template debug(args: varargs[string, `$`]) =
+  echo "<7>" & args.join(" ")
 
-# log.debug("debug")
-# log.info("info")
-# log.warn("warn")
-# log.error("error")
-# log.fatal("fatal")
+template info(args: varargs[string, `$`]) =
+  echo "<6>" & args.join(" ")
+
+# <5>This is a NOTICE level message
+# <4>This is a WARNING level message
+# <3>This is an ERR level message
+
+template critical(args: varargs[string, `$`]) =
+  echo "<2>" & args.join(" ")
+  
+# <1>This is an ALERT level message
+# <0>This is an EMERG level message
+
+onSignal(SIGABRT):
+  ## Handle SIGABRT from systemd
+  # Lines printed to stdout will be received by systemd and logged
+  # Start with "<severity>" from 0 to 7
+  critical "Received SIGABRT"
+  quit(1)
+
 
 # Jester settings
 settings:
@@ -96,7 +111,7 @@ proc stopMessenger() {.noconv.} =
   
 proc connectToServer(serverUrl, clientID, username, password: string): MQTTClient =
   try:
-    log.info("Connecting as " & clientID & " to " & serverUrl)
+    info("Connecting as " & clientID & " to " & serverUrl)
     result = newClient(serverUrl, clientID, MQTTPersistenceType.None)
     var connectOptions = newConnectOptions()
     connectOptions.username = username
@@ -117,7 +132,7 @@ proc messengerLoop() {.thread.} =
       # Wait upto 100 ms to receive an MQTT message
       let timeout = client.receive(topicName, message, 100)
       if not timeout:
-        log.info("Topic: " & topicName & " payload: " & message.payload)
+        debug "Topic: ", topicName,  " payload: ", message.payload
         #handleMessage(topicName, message)
     # If we have something in the channel, handle it
     var (gotit, msg) = tryRecv(channel)
@@ -219,46 +234,46 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   var action = spec["action"].str
   case action
   of "available_supply":
-    log.debug("Available supply: " & $spec)
+    debug("Available supply: " & $spec)
     return availableSupply(spec)
   of "wallet_create":
-    log.debug("Wallet create: " & $spec)
+    debug("Wallet create: " & $spec)
     return walletCreate(spec)
   of "wallet_change_seed":
-    log.debug("Wallet change seed: " & $spec)
+    debug("Wallet change seed: " & $spec)
     return walletChangeSeed(spec)
   of "account_create":
-    log.debug("Account create: " & $spec)
+    debug("Account create: " & $spec)
     return accountCreate(spec)
   of "account_key":
-    log.debug("Account key: " & $spec)
+    debug("Account key: " & $spec)
     return accountKey(spec)
   of "account_list":
-    log.debug("Account list: " & $spec)
+    debug("Account list: " & $spec)
     return accountList(spec)
   of "account_remove":
-    log.debug("Account remove: " & $spec)
+    debug("Account remove: " & $spec)
     return accountRemove(spec)
   of "account_history":
-    log.debug("Account history: " & $spec)
+    debug("Account history: " & $spec)
     return accountHistory(spec)
   of "accounts_balances":
-    log.debug("Accounts balances: " & $spec)
+    debug("Accounts balances: " & $spec)
     return accountsBalances(spec)
   of "password_change":
-    log.debug("Password change: " & $spec)
+    debug("Password change: " & $spec)
     return passwordChange(spec)
   of "password_enter":
-    log.debug("Password enter: " & $spec)
+    debug("Password enter: " & $spec)
     return passwordEnter(spec)
   of "password_valid":
-    log.debug("Password valid: " & $spec)
+    debug("Password valid: " & $spec)
     return passwordValid(spec)
   of "wallet_locked":
-    log.debug("Wallet locked: " & $spec)
+    debug("Wallet locked: " & $spec)
     return walletLocked(spec)                
   of "send":
-    log.debug( "Send: " & $spec
+    debug("Send: " & $spec)
     return send(spec)
   return %*{"error": "unknown action"}
 
@@ -285,7 +300,7 @@ routes:
       stderr.writeLine "Unable to parse JSON body: " & request.body      
       resp Http400, "Unable to parse JSON body"
     var res = performRaiRPC(spec)
-    log.debug("Result: " & $res)
+    debug("Result: " & $res)
     resp($res, "application/json")
 
 # Start MQTT messenger thread

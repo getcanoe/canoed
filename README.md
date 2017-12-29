@@ -33,21 +33,30 @@ Now we are ready to build **canoed**.
 Enter the `canoed` directory and build it using the command `nimble build` or both build and install it using `nimble install`. This will download and install Nim dependencies automatically.
 
 ### Adding service
+This presumes you already have a rai_node.service defined according to [the wiki page](https://github.com/clemahieu/raiblocks/wiki/Running-rai_node-as-a-service).
+
 Create `/etc/systemd/system/canoed.service`:
 
     [Unit]
     Description=Canoed
-    After=network.target
+    Documentation=https://github.com/gokr/canoed
+    After=network.target httpd.service rai_node.service
 
     [Service]
     User=canoe
     WorkingDirectory=/home/canoe
     ExecStart=/home/canoe/.nimble/bin/canoed
+    KillMode=mixed
+    KillSignal=SIGTERM
     Restart=always
-    RestartSec=60
-        
+    RestartSec=2s
+    NoNewPrivileges=yes
+    StandardOutput=syslog+console
+    StandardError=syslog+console
+
     [Install]
     WantedBy=multi-user.target
+
 
 Then enable it:
 

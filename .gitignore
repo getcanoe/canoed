@@ -1,6 +1,6 @@
 builds
 bin
 nimcache
-raiwd
-raiwd.conf
+canoed
+canoed.conf
 tests/all
