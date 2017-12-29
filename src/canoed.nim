@@ -1,8 +1,8 @@
-# Raiwd is a service written in Nim, run as:
+# canoed is a service written in Nim, run as:
 #
-#   raiwd -u myuser -p mysecretpassword -s tcp://some-mqtt-server.com:1883 -r http://localhost:7076
+#   canoed -u myuser -p mysecretpassword -s tcp://some-mqtt-server.com:1883 -r http://localhost:7076
 #
-# Raiwd listens on port 8080 for REST calls with JSON payloads, and performs calls to rai_node RPC. 
+# canoed listens on port 8080 for REST calls with JSON payloads, and performs calls to rai_node RPC. 
 #
 # * Jester runs in the main thread, asynchronously. 
 # * MQTT is handled in the messengerThread and uses one Channel to publish, and another to get messages.
@@ -10,21 +10,31 @@
 import jester, asyncdispatch, mqtt, MQTTClient, asyncnet, htmlgen, json, logging, os, strutils,
   sequtils, nuuid, tables, osproc, base64, threadpool, docopt, streams, pegs, httpclient
 
+import morelogging as log
+
+let log = newAsyncFileLogger()
+
+# log.debug("debug")
+# log.info("info")
+# log.warn("warn")
+# log.error("error")
+# log.fatal("fatal")
+
 # Jester settings
 settings:
   port = Port(8080)
 
 # Various defaults
 const
-  raiwdVersion = "raiwd 0.0.1"
+  canoedVersion = "canoed 0.0.1"
 
 let help = """
-  raiwd
+  canoed
   
   Usage:
-    raiwd [-c CONFIGFILE] [-a PATH] [-u USERNAME] [-p PASSWORD] [-s MQTTURL] [-r RAIURL]
-    raiwd (-h | --help)
-    raiwd (-v | --version)
+    canoed [-c CONFIGFILE] [-a PATH] [-u USERNAME] [-p PASSWORD] [-s MQTTURL] [-r RAIURL]
+    canoed (-h | --help)
+    canoed (-v | --version)
 
   Options:
     -u USERNAME       Set MQTT username [default: test].
@@ -32,12 +42,12 @@ let help = """
     -r RAIURL         Set URL for the rai_node [default: http://localhost:7076]
     -z PORT         
     -s MQTTURL        Set URL for the MQTT server [default: tcp://localhost:1883]
-    -c CONFIGFILE     Load options from given filename if it exists [default: raiwd.conf]
+    -c CONFIGFILE     Load options from given filename if it exists [default: canoed.conf]
     -h --help         Show this screen.
     -v --version      Show version.
   """
 
-var args = docopt(help, version = raiwdVersion)
+var args = docopt(help, version = canoedVersion)
 
 # Pool size
 #setMinPoolSize(50)
@@ -48,10 +58,10 @@ let config = $args["-c"]
 if existsFile(getCurrentDir() / config):
   var conf = readFile(getCurrentDir() / config).splitWhitespace()
   var params = commandLineParams().concat(conf)
-  args = docopt(help, params, version = raiwdVersion)
+  args = docopt(help, params, version = canoedVersion)
 
 # MQTT parameters
-let clientID = "raiwd-" & generateUUID()
+let clientID = "canoed-" & generateUUID()
 let username = $args["-u"]
 let password = $args["-p"]
 let serverUrl = $args["-s"]
@@ -86,7 +96,7 @@ proc stopMessenger() {.noconv.} =
   
 proc connectToServer(serverUrl, clientID, username, password: string): MQTTClient =
   try:
-    echo "Connecting as " & clientID & " to " & serverUrl
+    log.info("Connecting as " & clientID & " to " & serverUrl)
     result = newClient(serverUrl, clientID, MQTTPersistenceType.None)
     var connectOptions = newConnectOptions()
     connectOptions.username = username
@@ -107,7 +117,7 @@ proc messengerLoop() {.thread.} =
       # Wait upto 100 ms to receive an MQTT message
       let timeout = client.receive(topicName, message, 100)
       if not timeout:
-        echo "Topic: " & topicName & " payload: " & message.payload
+        log.info("Topic: " & topicName & " payload: " & message.payload)
         #handleMessage(topicName, message)
     # If we have something in the channel, handle it
     var (gotit, msg) = tryRecv(channel)
@@ -209,53 +219,53 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   var action = spec["action"].str
   case action
   of "available_supply":
-    echo "Available supply: " & $spec
+    log.debug("Available supply: " & $spec)
     return availableSupply(spec)
   of "wallet_create":
-    echo "Wallet create: " & $spec
+    log.debug("Wallet create: " & $spec)
     return walletCreate(spec)
   of "wallet_change_seed":
-    echo "Wallet change seed: " & $spec
+    log.debug("Wallet change seed: " & $spec)
     return walletChangeSeed(spec)
   of "account_create":
-    echo "Account create: " & $spec
+    log.debug("Account create: " & $spec)
     return accountCreate(spec)
   of "account_key":
-    echo "Account key: " & $spec
+    log.debug("Account key: " & $spec)
     return accountKey(spec)
   of "account_list":
-    echo "Account list: " & $spec
+    log.debug("Account list: " & $spec)
     return accountList(spec)
   of "account_remove":
-    echo "Account remove: " & $spec
+    log.debug("Account remove: " & $spec)
     return accountRemove(spec)
   of "account_history":
-    echo "Account history: " & $spec
+    log.debug("Account history: " & $spec)
     return accountHistory(spec)
   of "accounts_balances":
-    echo "Accounts balances: " & $spec
+    log.debug("Accounts balances: " & $spec)
     return accountsBalances(spec)
   of "password_change":
-    echo "Password change: " & $spec
+    log.debug("Password change: " & $spec)
     return passwordChange(spec)
   of "password_enter":
-    echo "Password enter: " & $spec
+    log.debug("Password enter: " & $spec)
     return passwordEnter(spec)
   of "password_valid":
-    echo "Password valid: " & $spec
+    log.debug("Password valid: " & $spec)
     return passwordValid(spec)
   of "wallet_locked":
-    echo "Wallet locked: " & $spec
+    log.debug("Wallet locked: " & $spec)
     return walletLocked(spec)                
   of "send":
-    echo "Send: " & $spec
+    log.debug( "Send: " & $spec
     return send(spec)
   return %*{"error": "unknown action"}
 
 # Jester routes
 routes:
   get "/":
-   resp p("Raiwd is running")
+   resp p("canoed is running")
 
   post "/callback":
     var spec: JsonNode
@@ -275,6 +285,7 @@ routes:
       stderr.writeLine "Unable to parse JSON body: " & request.body      
       resp Http400, "Unable to parse JSON body"
     var res = performRaiRPC(spec)
+    log.debug("Result: " & $res)
     resp($res, "application/json")
 
 # Start MQTT messenger thread
