@@ -45,7 +45,7 @@ Create `/etc/systemd/system/canoed.service`:
     [Service]
     User=canoe
     WorkingDirectory=/home/canoe
-    ExecStart=/home/canoe/.nimble/bin/canoed
+    ExecStart=/home/canoe/.nimble/bin/canoed -r http://[::1]:7076
     KillMode=mixed
     KillSignal=SIGTERM
     Restart=always
