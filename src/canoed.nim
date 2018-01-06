@@ -154,79 +154,67 @@ proc startMessenger(serverUrl, clientID, username, password: string) =
   addQuitProc(stopMessenger)
   connectMQTT(serverUrl, clientID, username, password)
 
-proc callRai(spec: JsonNode): httpclient.Response =
+proc callRai(spec: JsonNode): JsonNode =
   let client = newHttpClient()
   client.headers = newHttpHeaders({ "Content-Type": "application/json" })
-  return client.request(raiUrl, httpMethod = HttpPost, body = $spec)
+  var response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
+  result = parseJson(response.body)
+  debug("Answer: " & $result)
 
 proc availableSupply(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"available": spec["available"]}
 
 proc walletCreate(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"wallet": spec["wallet"]}
 
 proc walletChangeSeed(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"success": spec["success"]}
   
 proc accountCreate(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"account": spec["account"]}
 
 proc accountKey(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"key": spec["key"]}
 
 proc accountList(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"accounts": spec["accounts"]}
 
 proc accountRemove(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"removed": spec["removed"]}    
 
 proc accountHistory(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"history": spec["history"]}    
 
 proc accountsBalances(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"balances": spec["balances"]}    
 
 proc passwordChange(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"changed": spec["changed"]}    
 
 proc passwordEnter(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"valid": spec["valid"]}    
 
 proc passwordValid(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"valid": spec["valid"]}    
 
 proc walletLocked(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"locked": spec["locked"]}    
         
 proc send(spec: JsonNode): JsonNode =
-  var response = callRai(spec)
-  var spec = parseJson(response.body)
+  var spec = callRai(spec)
   return %*{"block": spec["block"]}    
   
 proc performRaiRPC(spec: JsonNode): JsonNode =
