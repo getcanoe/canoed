@@ -14,7 +14,6 @@ requires "jester"
 requires "nuuid"
 requires "docopt >= 0.6.5"
 requires "tempdir >= 1.0.0"
-requires "morelogging"
 requires "https://github.com/barnybug/nim-mqtt.git"
 
 # Tasks
