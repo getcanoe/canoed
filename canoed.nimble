@@ -1,7 +1,7 @@
 # Package
-version       = "0.0.1"
+version       = "0.0.2"
 author        = "Göran Krampe"
-description   = "Headless REST backend for RaiW wallet."
+description   = "Headless REST backend for Canoe wallet."
 license       = "MIT"
 srcDir        = "src"
 binDir        = "bin"

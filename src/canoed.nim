@@ -82,6 +82,9 @@ let password = $args["-p"]
 let serverUrl = $args["-s"]
 var raiUrl {.threadvar.}: string
 raiUrl = $args["-r"]
+var client {.threadvar.}: HttpClient
+client = newHttpClient(timeout = 2000)
+client.headers = newHttpHeaders({ "Content-Type": "application/json" })
 
 type
   MessageKind = enum connect, publish, stop
@@ -155,11 +158,23 @@ proc startMessenger(serverUrl, clientID, username, password: string) =
   connectMQTT(serverUrl, clientID, username, password)
 
 proc callRai(spec: JsonNode): JsonNode =
-  let client = newHttpClient()
-  client.headers = newHttpHeaders({ "Content-Type": "application/json" })
-  var response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
-  result = parseJson(response.body)
+  #let client = newHttpClient()
+  #client.headers = newHttpHeaders({ "Content-Type": "application/json" })
+  try:
+    var response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
+    result = parseJson(response.body)
+  except:
+    let
+      e = getCurrentException()
+      msg = getCurrentExceptionMsg()
+    result = %*{"failure": repr(e), "message": msg}
   debug("Answer: " & $result)
+
+proc canoeServerStatus(spec: JsonNode): JsonNode =
+  # Called if calls fail to get a message to show
+  if (fileExists("canoeServerStatus.json")):
+    return parseJSON(readFile("canoeServerStatus.json"))
+  return %*{"status": "ok"}
 
 proc availableSupply(spec: JsonNode): JsonNode =
   var spec = callRai(spec)
@@ -221,6 +236,9 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
   var action = spec["action"].str
   case action
+  of "canoe_server_status":
+    debug("Canoe server status:" & $spec)
+    return canoeServerStatus(spec)
   of "available_supply":
     debug("Available supply: " & $spec)
     return availableSupply(spec)
