@@ -7,7 +7,7 @@
 # * Jester runs in the main thread, asynchronously. 
 # * MQTT is handled in the messengerThread and uses one Channel to publish, and another to get messages.
 
-import jester, posix, asyncdispatch, mqtt, MQTTClient, asyncnet, htmlgen, json, os, strutils,
+import jester, posix, net, asyncdispatch, mqtt, MQTTClient, asyncnet, htmlgen, json, os, strutils,
   sequtils, nuuid, tables, osproc, base64, threadpool, docopt, streams, pegs, httpclient
 
 
@@ -163,11 +163,14 @@ proc callRai(spec: JsonNode): JsonNode =
   try:
     var response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
     result = parseJson(response.body)
+  except TimeoutError:
+    let msg = getCurrentExceptionMsg()
+    result = %*{"failure": "timeout", "message": msg}
   except:
     let
       e = getCurrentException()
       msg = getCurrentExceptionMsg()
-    result = %*{"failure": repr(e), "message": msg}
+    result = %*{"failure": "error", "message": msg}
   debug("Answer: " & $result)
 
 proc canoeServerStatus(spec: JsonNode): JsonNode =
@@ -177,60 +180,60 @@ proc canoeServerStatus(spec: JsonNode): JsonNode =
   return %*{"status": "ok"}
 
 proc availableSupply(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"available": spec["available"]}
+  return callRai(spec)
+  # return %*{"available": spec["available"]}
 
 proc walletCreate(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"wallet": spec["wallet"]}
+  callRai(spec)
+  #return %*{"wallet": spec["wallet"]}
 
 proc walletChangeSeed(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"success": spec["success"]}
+  callRai(spec)
+  # return %*{"success": spec["success"]}
   
 proc accountCreate(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"account": spec["account"]}
+  callRai(spec)
+  #return %*{"account": spec["account"]}
 
 proc accountKey(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"key": spec["key"]}
+  callRai(spec)
+  #return %*{"key": spec["key"]}
 
 proc accountList(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"accounts": spec["accounts"]}
+  callRai(spec)
+  #return %*{"accounts": spec["accounts"]}
 
 proc accountRemove(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"removed": spec["removed"]}    
+  callRai(spec)
+  #return %*{"removed": spec["removed"]}    
 
 proc accountHistory(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"history": spec["history"]}    
+  callRai(spec)
+  #return %*{"history": spec["history"]}    
 
 proc accountsBalances(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"balances": spec["balances"]}    
+  callRai(spec)
+  #return %*{"balances": spec["balances"]}    
 
 proc passwordChange(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"changed": spec["changed"]}    
+  callRai(spec)
+  #return %*{"changed": spec["changed"]}    
 
 proc passwordEnter(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"valid": spec["valid"]}    
+  callRai(spec)
+  #return %*{"valid": spec["valid"]}    
 
 proc passwordValid(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"valid": spec["valid"]}    
+  callRai(spec)
+  #return %*{"valid": spec["valid"]}    
 
 proc walletLocked(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"locked": spec["locked"]}    
+  callRai(spec)
+  #return %*{"locked": spec["locked"]}    
         
 proc send(spec: JsonNode): JsonNode =
-  var spec = callRai(spec)
-  return %*{"block": spec["block"]}    
+  callRai(spec)
+  #return %*{"block": spec["block"]}    
   
 proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
