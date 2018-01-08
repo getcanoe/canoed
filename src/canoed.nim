@@ -21,6 +21,10 @@ template info(args: varargs[string, `$`]) =
 # <4>This is a WARNING level message
 # <3>This is an ERR level message
 
+template error(args: varargs[string, `$`]) =
+  echo "<3>" & args.join(" ")
+
+
 template critical(args: varargs[string, `$`]) =
   echo "<2>" & args.join(" ")
   
@@ -82,9 +86,6 @@ let password = $args["-p"]
 let serverUrl = $args["-s"]
 var raiUrl {.threadvar.}: string
 raiUrl = $args["-r"]
-var client {.threadvar.}: HttpClient
-client = newHttpClient(timeout = 2000)
-client.headers = newHttpHeaders({ "Content-Type": "application/json" })
 
 type
   MessageKind = enum connect, publish, stop
@@ -158,20 +159,21 @@ proc startMessenger(serverUrl, clientID, username, password: string) =
   connectMQTT(serverUrl, clientID, username, password)
 
 proc callRai(spec: JsonNode): JsonNode =
-  #let client = newHttpClient()
-  #client.headers = newHttpHeaders({ "Content-Type": "application/json" })
+  let client = newHttpClient(timeout = 5000)
+  client.headers = newHttpHeaders({ "Content-Type": "application/json" })
   try:
     var response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
     result = parseJson(response.body)
   except TimeoutError:
     let msg = getCurrentExceptionMsg()
     result = %*{"failure": "timeout", "message": msg}
+    error("Timeout: " & $result)
   except:
     let
-      e = getCurrentException()
+      # e = getCurrentException()
       msg = getCurrentExceptionMsg()
     result = %*{"failure": "error", "message": msg}
-  debug("Answer: " & $result)
+    error("Falure: " & $result)
 
 proc canoeServerStatus(spec: JsonNode): JsonNode =
   # Called if calls fail to get a message to show
@@ -181,59 +183,46 @@ proc canoeServerStatus(spec: JsonNode): JsonNode =
 
 proc availableSupply(spec: JsonNode): JsonNode =
   return callRai(spec)
-  # return %*{"available": spec["available"]}
 
 proc walletCreate(spec: JsonNode): JsonNode =
+  # TODO Limit?
   callRai(spec)
-  #return %*{"wallet": spec["wallet"]}
 
 proc walletChangeSeed(spec: JsonNode): JsonNode =
   callRai(spec)
-  # return %*{"success": spec["success"]}
   
 proc accountCreate(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"account": spec["account"]}
 
 proc accountKey(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"key": spec["key"]}
 
 proc accountList(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"accounts": spec["accounts"]}
 
 proc accountRemove(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"removed": spec["removed"]}    
 
 proc accountHistory(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"history": spec["history"]}    
 
 proc accountsBalances(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"balances": spec["balances"]}    
 
 proc passwordChange(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"changed": spec["changed"]}    
 
 proc passwordEnter(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"valid": spec["valid"]}    
 
 proc passwordValid(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"valid": spec["valid"]}    
 
 proc walletLocked(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"locked": spec["locked"]}    
         
 proc send(spec: JsonNode): JsonNode =
   callRai(spec)
-  #return %*{"block": spec["block"]}    
   
 proc performRaiRPC(spec: JsonNode): JsonNode =
   # Switch on action
@@ -246,43 +235,43 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
     debug("Available supply: " & $spec)
     return availableSupply(spec)
   of "wallet_create":
-    debug("Wallet create: " & $spec)
+    debug("Wallet create")
     return walletCreate(spec)
   of "wallet_change_seed":
-    debug("Wallet change seed: " & $spec)
+    debug("Wallet change seed")
     return walletChangeSeed(spec)
   of "account_create":
-    debug("Account create: " & $spec)
+    debug("Account create")
     return accountCreate(spec)
   of "account_key":
-    debug("Account key: " & $spec)
+    debug("Account key")
     return accountKey(spec)
   of "account_list":
-    debug("Account list: " & $spec)
+    debug("Account list")
     return accountList(spec)
   of "account_remove":
-    debug("Account remove: " & $spec)
+    debug("Account remove")
     return accountRemove(spec)
   of "account_history":
-    debug("Account history: " & $spec)
+    debug("Account history")
     return accountHistory(spec)
   of "accounts_balances":
-    debug("Accounts balances: " & $spec)
+    debug("Accounts balances")
     return accountsBalances(spec)
   of "password_change":
-    debug("Password change: " & $spec)
+    debug("Password change")
     return passwordChange(spec)
   of "password_enter":
-    debug("Password enter: " & $spec)
+    debug("Password enter")
     return passwordEnter(spec)
   of "password_valid":
-    debug("Password valid: " & $spec)
+    debug("Password valid")
     return passwordValid(spec)
   of "wallet_locked":
-    debug("Wallet locked: " & $spec)
+    debug("Wallet locked")
     return walletLocked(spec)                
   of "send":
-    debug("Send: " & $spec)
+    debug("Send")
     return send(spec)
   return %*{"error": "unknown action"}
 
