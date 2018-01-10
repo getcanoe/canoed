@@ -7,8 +7,8 @@
 # * Jester runs in the main thread, asynchronously. 
 # * MQTT is handled in the messengerThread and uses one Channel to publish, and another to get messages.
 
-import jester, posix, net, asyncdispatch, mqtt, MQTTClient, asyncnet, htmlgen, json, os, strutils,
-  sequtils, nuuid, tables, osproc, base64, threadpool, docopt, streams, pegs, httpclient
+import jester, posix, net, asyncdispatch, threadpool, mqtt, MQTTClient, asyncnet, htmlgen, json, os, strutils,
+  sequtils, nuuid, tables, osproc, base64, docopt, streams, pegs, httpclient
 
 
 template debug(args: varargs[string, `$`]) =
@@ -42,6 +42,7 @@ onSignal(SIGABRT):
 # Jester settings
 settings:
   port = Port(8080)
+  bindAddr = "127.0.0.1"
 
 # Various defaults
 const
@@ -159,10 +160,11 @@ proc startMessenger(serverUrl, clientID, username, password: string) =
   connectMQTT(serverUrl, clientID, username, password)
 
 proc callRai(spec: JsonNode): JsonNode =
-  let client = newHttpClient(timeout = 5000)
+  let client = newHttpClient(timeout = 10000)
   client.headers = newHttpHeaders({ "Content-Type": "application/json" })
+  var response: httpclient.Response
   try:
-    var response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
+    response = client.request(raiUrl, httpMethod = HttpPost, body = $spec)
     result = parseJson(response.body)
   except TimeoutError:
     let msg = getCurrentExceptionMsg()
@@ -172,7 +174,7 @@ proc callRai(spec: JsonNode): JsonNode =
     let
       # e = getCurrentException()
       msg = getCurrentExceptionMsg()
-    result = %*{"failure": "error", "message": msg}
+    result = %*{"failure": "error", "message": msg, "body": response.body}
     error("Falure: " & $result)
 
 proc canoeServerStatus(spec: JsonNode): JsonNode =
@@ -184,9 +186,11 @@ proc canoeServerStatus(spec: JsonNode): JsonNode =
 proc availableSupply(spec: JsonNode): JsonNode =
   return callRai(spec)
 
-proc walletCreate(spec: JsonNode): JsonNode =
+proc walletCreate(spec: JsonNode): Future[JsonNode] {.async.} =
   # TODO Limit?
-  callRai(spec)
+  result = callRai(spec)
+  await sleepAsync(2000) # Helps?
+  return result
 
 proc walletChangeSeed(spec: JsonNode): JsonNode =
   callRai(spec)
@@ -224,7 +228,7 @@ proc walletLocked(spec: JsonNode): JsonNode =
 proc send(spec: JsonNode): JsonNode =
   callRai(spec)
   
-proc performRaiRPC(spec: JsonNode): JsonNode =
+proc performRaiRPC(spec: JsonNode): Future[JsonNode] {.async.} =
   # Switch on action
   var action = spec["action"].str
   case action
@@ -235,8 +239,9 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
     debug("Available supply: " & $spec)
     return availableSupply(spec)
   of "wallet_create":
-    debug("Wallet create")
-    return walletCreate(spec)
+    #debug("Wallet create NOT ALLOWED")
+    #return *%{"error": "Not allowing new wallets"}
+    return await walletCreate(spec)
   of "wallet_change_seed":
     debug("Wallet change seed")
     return walletChangeSeed(spec)
@@ -248,7 +253,9 @@ proc performRaiRPC(spec: JsonNode): JsonNode =
     return accountKey(spec)
   of "account_list":
     debug("Account list")
-    return accountList(spec)
+    let res = accountList(spec)
+    debug("Account list: " & $res)
+    return res
   of "account_remove":
     debug("Account remove")
     return accountRemove(spec)
@@ -297,7 +304,7 @@ routes:
     except:
       stderr.writeLine "Unable to parse JSON body: " & request.body      
       resp Http400, "Unable to parse JSON body"
-    var res = performRaiRPC(spec)
+    var res = await performRaiRPC(spec)
     debug("Result: " & $res)
     resp($res, "application/json")
 
