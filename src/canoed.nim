@@ -183,6 +183,12 @@ proc canoeServerStatus(spec: JsonNode): JsonNode =
     return parseJSON(readFile("canoeServerStatus.json"))
   return %*{"status": "ok"}
 
+proc quotaFull(spec: JsonNode): JsonNode =
+  # Called to check available quota
+  if (fileExists("quotafull.json")):
+    return parseJSON(readFile("quotafull.json"))
+  return %*{"full": false}
+
 proc availableSupply(spec: JsonNode): JsonNode =
   return callRai(spec)
 
@@ -232,6 +238,9 @@ proc performRaiRPC(spec: JsonNode): Future[JsonNode] {.async.} =
   # Switch on action
   var action = spec["action"].str
   case action
+  of "quota_full":
+    debug("Quota full:" & $spec)
+    return quotaFull(spec)
   of "canoe_server_status":
     debug("Canoe server status:" & $spec)
     return canoeServerStatus(spec)
