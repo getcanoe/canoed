@@ -52,7 +52,7 @@ let help = """
   canoed
   
   Usage:
-    canoed [-c CONFIGFILE] [-a PATH] [-u USERNAME] [-p PASSWORD] [-s MQTTURL] [-r RAIURL]
+    canoed [-c CONFIGFILE] [-a PATH] [-u USERNAME] [-p PASSWORD] [-s MQTTURL] [-r RAIURL] [-l LIMIT]
     canoed (-h | --help)
     canoed (-v | --version)
 
@@ -60,6 +60,7 @@ let help = """
     -u USERNAME       Set MQTT username [default: test].
     -p PASSWORD       Set MQTT password [default: test].
     -r RAIURL         Set URL for the rai_node [default: http://localhost:7076]
+    -l LIMIT          Set LIMIT of wallets to allow [default: 1000]
     -z PORT         
     -s MQTTURL        Set URL for the MQTT server [default: tcp://localhost:1883]
     -c CONFIGFILE     Load options from given filename if it exists [default: canoed.conf]
@@ -85,8 +86,12 @@ let clientID = "canoed-" & generateUUID()
 let username = $args["-u"]
 let password = $args["-p"]
 let serverUrl = $args["-s"]
+let limit = parseInt($args["-l"])
 var raiUrl {.threadvar.}: string
 raiUrl = $args["-r"]
+var wallets = 0
+
+wallets = parseInt(readFile("wallets"))
 
 type
   MessageKind = enum connect, publish, stop
@@ -185,16 +190,23 @@ proc canoeServerStatus(spec: JsonNode): JsonNode =
 
 proc quotaFull(spec: JsonNode): JsonNode =
   # Called to check available quota
-  if (fileExists("quotafull.json")):
-    return parseJSON(readFile("quotafull.json"))
+  if (wallets >= limit):
+    return %*{"full": true}
   return %*{"full": false}
 
 proc availableSupply(spec: JsonNode): JsonNode =
   return callRai(spec)
 
 proc walletCreate(spec: JsonNode): Future[JsonNode] {.async.} =
-  # TODO Limit?
-  result = callRai(spec)
+  if (wallets < limit):
+    debug("Wallets " & $wallets & " < " & $limit)
+    result = callRai(spec)
+  else:
+    debug("Wallets limit reached")
+    return %*{"failure": "error", "message": "Not allowing new wallets"}
+  if (result.hasKey("wallet")):
+    inc wallets
+    writeFile("wallets", $wallets)
   await sleepAsync(2000) # Helps?
   return result
 
@@ -248,8 +260,6 @@ proc performRaiRPC(spec: JsonNode): Future[JsonNode] {.async.} =
     debug("Available supply: " & $spec)
     return availableSupply(spec)
   of "wallet_create":
-    #debug("Wallet create NOT ALLOWED")
-    #return *%{"error": "Not allowing new wallets"}
     return await walletCreate(spec)
   of "wallet_change_seed":
     debug("Wallet change seed")
