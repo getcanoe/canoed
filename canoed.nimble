@@ -12,6 +12,8 @@ skipExt       = @["nim"]
 requires "nim >= 0.17.2"
 requires "jester"
 requires "nuuid"
+requires "redis"
+requires "nimhttpauth"
 requires "docopt >= 0.6.5"
 requires "tempdir >= 1.0.0"
 requires "https://github.com/barnybug/nim-mqtt.git"

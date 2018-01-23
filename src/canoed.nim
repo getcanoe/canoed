@@ -8,28 +8,25 @@
 # * MQTT is handled in the messengerThread and uses one Channel to publish, and another to get messages.
 
 import jester, posix, net, asyncdispatch, threadpool, mqtt, MQTTClient, asyncnet, htmlgen, json, os, strutils,
-  sequtils, nuuid, tables, osproc, base64, docopt, streams, pegs, httpclient
+  sequtils, nuuid, tables, osproc, base64, docopt, streams, strscans, httpclient, redis, httpauth
 
+from httpauthpkg.base import HTTPAuthBackend
 
+# Logging templates that work fine with systemd
 template debug(args: varargs[string, `$`]) =
   echo "<7>" & args.join(" ")
-
 template info(args: varargs[string, `$`]) =
   echo "<6>" & args.join(" ")
-
 # <5>This is a NOTICE level message
 # <4>This is a WARNING level message
 # <3>This is an ERR level message
-
 template error(args: varargs[string, `$`]) =
   echo "<3>" & args.join(" ")
-
-
 template critical(args: varargs[string, `$`]) =
   echo "<2>" & args.join(" ")
-  
 # <1>This is an ALERT level message
 # <0>This is an EMERG level message
+
 
 onSignal(SIGABRT):
   ## Handle SIGABRT from systemd
@@ -37,7 +34,6 @@ onSignal(SIGABRT):
   # Start with "<severity>" from 0 to 7
   critical "Received SIGABRT"
   quit(1)
-
 
 # Jester settings
 settings:
@@ -52,7 +48,7 @@ let help = """
   canoed
   
   Usage:
-    canoed [-c CONFIGFILE] [-a PATH] [-u USERNAME] [-p PASSWORD] [-s MQTTURL] [-r RAIURL] [-l LIMIT]
+    canoed [-c CONFIGFILE] [-a PATH] [-u USERNAME] [-p PASSWORD] [-s MQTTURL] [-r RAIURL] [-l LIMIT] [-i]
     canoed (-h | --help)
     canoed (-v | --version)
 
@@ -64,6 +60,7 @@ let help = """
     -z PORT         
     -s MQTTURL        Set URL for the MQTT server [default: tcp://localhost:1883]
     -c CONFIGFILE     Load options from given filename if it exists [default: canoed.conf]
+    -i PASS           Initialize admin password
     -h --help         Show this screen.
     -v --version      Show version.
   """
@@ -71,8 +68,8 @@ let help = """
 var args = docopt(help, version = canoedVersion)
 
 # Pool size
-#setMinPoolSize(50)
-#setMaxPoolSize(50)
+setMinPoolSize(50)
+setMaxPoolSize(50)
 
 # We need to load config file if it exists and run docopt again
 let config = $args["-c"]
@@ -86,12 +83,29 @@ let clientID = "canoed-" & generateUUID()
 let username = $args["-u"]
 let password = $args["-p"]
 let serverUrl = $args["-s"]
+let adminPass = $args["-i"]
+
 let limit = parseInt($args["-l"])
 var raiUrl {.threadvar.}: string
 raiUrl = $args["-r"]
-var wallets = 0
 
+var wallets = 0
 wallets = parseInt(readFile("wallets"))
+
+var redisClient {.threadvar.}: Future[AsyncRedis]
+redisClient = openAsync()
+
+# Create auth backend and a HTTPAuth instance
+var backend {.threadvar.}: HTTPAuthBackend
+backend = newSQLBackend("postgres://root@localhost/httpauth_canoe")
+var auth {.threadvar.}: HTTPAuth
+auth = newHTTPAuth("localhost", backend)
+
+if (adminPass != ""):
+  # Create admin user - you need to run this only once
+  auth.initialize_admin_user(password=adminPass)
+  auth.create_role("wallet", 10)
+  info("Admin password was set")
 
 type
   MessageKind = enum connect, publish, stop
@@ -118,7 +132,18 @@ proc stopMessenger() {.noconv.} =
   channel.send(Message(kind: stop))
   joinThread(messengerThread)
   close(channel)
-  
+
+proc connectionLost(cause: string) =
+  echo "connectionLost"
+
+proc messageArrived(topicName: string, message: MQTTMessage): cint =
+  echo "messageArrived: ", topicName, " ", message.payload
+  result = 1
+
+proc deliveryComplete(dt: MQTTDeliveryToken) =
+  echo "deliveryComplete"
+
+
 proc connectToServer(serverUrl, clientID, username, password: string): MQTTClient =
   try:
     info("Connecting as " & clientID & " to " & serverUrl)
@@ -126,12 +151,30 @@ proc connectToServer(serverUrl, clientID, username, password: string): MQTTClien
     var connectOptions = newConnectOptions()
     connectOptions.username = username
     connectOptions.password = password
+    #result.setCallbacks(connectionLost, messageArrived, deliveryComplete)
     result.connect(connectOptions)
-    #result.subscribe("config", QOS0)
+    #sleep 1_000_000
+    result.subscribe("profile/+/wallet/+/accounts", QOS1)
     #result.subscribe("verify/+", QOS0)
     #result.subscribe("upload/+", QOS0)
   except MQTTError:
     quit "MQTT exception: " & getCurrentExceptionMsg()
+
+
+proc handleServerMap(profileId, walletId, json: string) {.async.} =
+  var accounts = parseJson(json)
+  echo "Accounts: " & $accounts
+  var redis = open()
+  echo "Wallet: " & walletId & " " & $accounts
+  for acc in accounts:
+    redis.setk("xrb:" & acc.getStr, walletId)
+
+proc handleMessage(topic: string, message: MQTTMessage) =
+  var pid, wid: string
+  # Is this an account registration from updateServerMap ?
+  if scanf(topic, "profile/$*/wallet/$*/accounts$.", pid, wid):
+    discard handleServerMap(pid, wid, message.payload)
+    return
 
 proc messengerLoop() {.thread.} =
   var client: MQTTClient
@@ -139,11 +182,11 @@ proc messengerLoop() {.thread.} =
     if client.isConnected:
       var topicName: string
       var message: MQTTMessage
-      # Wait upto 100 ms to receive an MQTT message
-      let timeout = client.receive(topicName, message, 100)
+      # Wait upto 20 ms to receive an MQTT message
+      let timeout = client.receive(topicName, message, 20)
       if not timeout:
         debug "Topic: ", topicName,  " payload: ", message.payload
-        #handleMessage(topicName, message)
+        handleMessage(topicName, message)
     # If we have something in the channel, handle it
     var (gotit, msg) = tryRecv(channel)
     if gotit:
@@ -245,7 +288,40 @@ proc walletLocked(spec: JsonNode): JsonNode =
         
 proc send(spec: JsonNode): JsonNode =
   callRai(spec)
+
+proc performCallbackRPC(spec, blk: JsonNode) {.async.} =
+  var redis = open()
+  # Now we can pick out type of block
+  var blkType = blk["type"].getStr()
+
+  debug("Acc: " & spec["account"].getStr & "Block: " & blkType & " amount: " & spec["amount"].getStr)
   
+  # Switch on block type
+  case blkType
+  of "open":
+    var account = spec["account"].getStr
+    # Check if we have any interested wallet
+    var wallet = redis.get("account:" & account)
+    if not (wallet == "\0\0"):
+      publishMQTT("account/" & account & "/open", $spec)  
+    return
+  of "send":
+    var account = blk["destination"].getStr()
+    var wallet = redis.get("account:" & account)
+    if not (wallet == "\0\0"):
+      publishMQTT("account/" & account & "/send", $spec)
+    return
+  of "receive":
+    var account = spec["account"].getStr
+    var wallet = redis.get("account:" & account)
+    if not (wallet == "\0\0"):
+      publishMQTT("account/" & account & "/receive", $spec)  
+    return
+  of "change":
+    return
+  error("Unknown block type: " & blkType)
+  return
+
 proc performRaiRPC(spec: JsonNode): Future[JsonNode] {.async.} =
   # Switch on action
   var action = spec["action"].str
@@ -306,29 +382,64 @@ routes:
   get "/":
    resp p("canoed is running")
 
-  post "/callback":
-    var spec: JsonNode
+  post "/create":
     try:
+      #auth.require(role="admin")
+      auth.create_user(@"username", "wallet", @"password")
+      auth.create_user(@"username", @"role", @"password")
+      resp $( %* {"ok": true, "msg": ""})
+    except AuthError:
+      let r = %* {"msg": getCurrentExceptionMsg(), "ok": true}
+      resp $r
+
+  post "/login":
+    ## Perform login
+    auth.headers_hook(request.headers)
+    try:
+      auth.login(@"username", @"password")
+      resp "Success"
+    except LoginError:
+      resp "Failed"
+
+  get "/logout":
+    ## Logout
+    try:
+      auth.logout()
+      resp "Success"
+    except AuthError:
+      resp "Failed"
+      
+  # Callback entry point for rai_node to call
+  post "/callback":
+    var spec, blk: JsonNode
+    try:
+      #echo "BODY: " & request.body
       spec = parseJson(request.body)
-      echo "Callback: " & $spec
+      blk = parseJson(spec["block"].getStr)
     except:
-      stderr.writeLine "Unable to parse JSON body: " & request.body      
-      resp Http400, "Unable to parse JSON body"
-    resp Http200, "Got it"
+      error("Unable to parse rai_node callback: " & request.body)
+      resp Http400, "Unable to parse rai_node callback"
+    await performCallbackRPC(spec, blk)
+    resp Http200, "ok"
 
   post "/rpc":
     var spec: JsonNode
     try:
+      auth.require()
+    except AuthError:
+      error("Not authorized to access RPC")
+      resp "Not authorized to access RPC"
+    try:
       spec = parseJson(request.body)
     except:
-      stderr.writeLine "Unable to parse JSON body: " & request.body      
+      error("Unable to parse JSON body: " & request.body)      
       resp Http400, "Unable to parse JSON body"
     var res = await performRaiRPC(spec)
     debug("Result: " & $res)
     resp($res, "application/json")
 
 # Start MQTT messenger thread
-#startMessenger(serverUrl, clientID, username, password)
+startMessenger(serverUrl, clientID, username, password)
 
 # Start Jester
 runForever()
