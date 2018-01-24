@@ -4,3 +4,4 @@ nimcache
 canoed
 canoed.conf
 tests/all
+node_modules
