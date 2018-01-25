@@ -164,6 +164,8 @@ function startRESTServer () {
     var spec = req.body
     var action = req.body.action
     switch (action) {
+      case 'create_account':
+        return createAccount(spec).then((r) => { res.json(r) })
       case 'canoe_server_status':
         return res.json(canoeServerStatus(spec))
       case 'quota_full':
@@ -213,6 +215,13 @@ function canoeServerStatus (spec) {
 
 function availableSupply (spec) {
   return callRainode(spec)
+}
+
+// Create an account given a token and a tokenpass
+function createAccount (spec) {
+  var token = spec.token
+  var tokenpass = spec.tokenpass
+  
 }
 
 function getWalletForAccount (account, cb) {
