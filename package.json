@@ -8,6 +8,7 @@
     "fs": "0.0.1-security",
     "mqtt": "^2.7.2",
     "mqtt-regex": "^1.0.5",
+    "neodoc": "^1.4.0",
     "node-schedule": "^1.2.3",
     "pg": "^7.4.1",
     "redis": "^2.8.0",

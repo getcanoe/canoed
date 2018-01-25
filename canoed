@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * This is a service that has an express HTTP server, connects to an MQTT server
  * for pub/sub operations and uses Redis and PostgreSQL for state management.
@@ -11,13 +12,27 @@ const mqtt = require('mqtt')
 const request = require('request')
 // const util = require('util')
 // const schedule = require('node-schedule')
-const extend = require('extend')   // To merge objects
-const winston = require('winston') // Solid logging lib
-const redis = require('redis')     // For maintaining session state
-const { Pool } = require('pg')   // For proper database stuff
+const extend = require('extend')       // To merge objects
+const winston = require('winston')     // Solid logging lib
+const redis = require('redis')         // For maintaining session state
+const { Pool } = require('pg')         // For proper database stuff
+const neodoc = require('neodoc')       // For nice command line opts
+
+// Parse out command line
+const args = neodoc.run(`
+Usage:
+  canoed [--initialize] [--config=<path>]
+  canoed -h | --help | --version
+`, { optionsFirst: true, smartOptions: true })
+
+console.log("ARGS: " + JSON.stringify(args))
 
 // Default config that is extended (merged) with CONFIG_FILE
-const CONFIG_FILE = 'canoed.conf'
+var CONFIG_FILE = 'canoed.conf'
+if (args["--config"]) {
+  CONFIG_FILE = args["--config"]
+}
+
 var config = {
   logging: {
     level: 'info'
@@ -31,9 +46,9 @@ var config = {
     port: 7076
   },
   postgres: {
-    user: 'dbuser',
-    host: 'database.server.com',
-    database: 'mydb',
+    user: 'canoe',
+    host: 'localhost',
+    database: 'canoe',
     password: 'secretpassword',
     port: 3211
   },
@@ -98,7 +113,7 @@ function connectPostgres () {
 }
 
 // Initialize database for VerneMQ auth
-function initializeDb () {
+async function initializeDb () {
   var sql = `
     CREATE EXTENSION pgcrypto;
     CREATE TABLE vmq_auth_acl
@@ -111,7 +126,7 @@ function initializeDb () {
       subscribe_acl json,
       CONSTRAINT vmq_auth_acl_primary_key PRIMARY KEY (mountpoint, client_id, username)
     );`
-  const res = await pool.query(sql)
+  var res = await pool.query(sql)
   await pool.end()
 }
 
@@ -254,7 +269,7 @@ function availableSupply (spec) {
 }
 
 // Create an account given a token and a tokenpass
-function createAccount (spec) {
+async function createAccount (spec) {
   var values = [spec.token, spec.tokenpass, config.postgres.pubacl, config.postgres.subacl]
   var sql = `WITH x AS (
     SELECT
@@ -377,9 +392,27 @@ function configureSignals () {
   }))
 }
 
+
+// Let's start doing something
+
 configure()
 configureSignals()
 connectPostgres()
+
+if (args["--initialize"]) {
+  winston.debug('Initializing database ...')
+  initializeDb().then(
+    () => {
+      winston.debug('Initialization done.')
+      process.exit(0)
+    },
+    err => {
+      winston.debug('Initialization failed: ' + err)
+      process.exit(0)
+    }
+  )
+}
+
 connectRedis()
 connectMQTT()
 startRESTServer()
