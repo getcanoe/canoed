@@ -1,5 +1,6 @@
 /**
- * This is a service that connects to the global MQTT, listens for ALL switch
+ * This is a service that has an express HTTP server, connects to an MQTT server
+ * for pub/sub operations and uses Redis and PostgreSQL for state management.
  */
 
 const fs = require('fs')
@@ -12,7 +13,8 @@ const request = require('request')
 // const schedule = require('node-schedule')
 const extend = require('extend')   // To merge objects
 const winston = require('winston') // Solid logging lib
-const redis = require('redis')
+const redis = require('redis')     // For maintaining session state
+const { Pool } = require('pg')   // For proper database stuff
 
 // Default config that is extended (merged) with CONFIG_FILE
 const CONFIG_FILE = 'canoed.conf'
@@ -27,6 +29,13 @@ var config = {
   rainode: {
     host: 'localhost',
     port: 7076
+  },
+  postgres: {
+    user: 'dbuser',
+    host: 'database.server.com',
+    database: 'mydb',
+    password: 'secretpassword',
+    port: 3211
   },
   redis: {
     host: 'localhost',
@@ -49,6 +58,9 @@ var config = {
 
 // MQTT Client
 var mqttClient = null
+
+// Postgres pool client
+var pool = null
 
 // Redis Client
 var redisClient = null
@@ -77,6 +89,30 @@ function configure () {
     }
   }
   winston.level = config.logging.level
+}
+
+// Connect Postgres
+function connectPostgres () {
+  pool = new Pool(config.postgres)
+  winston.info('Connected to Postgres')
+}
+
+// Initialize database for VerneMQ auth
+function initializeDb () {
+  var sql = `
+    CREATE EXTENSION pgcrypto;
+    CREATE TABLE vmq_auth_acl
+    (
+      mountpoint character varying(10) NOT NULL,
+      client_id character varying(128) NOT NULL,
+      username character varying(128) NOT NULL,
+      password character varying(128),
+      publish_acl json,
+      subscribe_acl json,
+      CONSTRAINT vmq_auth_acl_primary_key PRIMARY KEY (mountpoint, client_id, username)
+    );`
+  const res = await pool.query(sql)
+  await pool.end()
 }
 
 // Connect Redis
@@ -219,9 +255,28 @@ function availableSupply (spec) {
 
 // Create an account given a token and a tokenpass
 function createAccount (spec) {
-  var token = spec.token
-  var tokenpass = spec.tokenpass
-  
+  var values = [spec.token, spec.tokenpass, config.postgres.pubacl, config.postgres.subacl]
+  var sql = `WITH x AS (
+    SELECT
+        ''::text AS mountpoint,
+           $1::text AS client_id,
+           $1::text AS username,
+           $2::text AS password,
+           gen_salt('bf')::text AS salt,
+           $3::json AS publish_acl,
+           $4::json AS subscribe_acl
+    ) 
+INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl, subscribe_acl)
+    SELECT 
+        x.mountpoint,
+        x.client_id,
+        x.username,
+        crypt(x.password, x.salt),
+        publish_acl,
+        subscribe_acl
+    FROM x;`
+  const res = await pool.query(sql, values)
+  await pool.end()
 }
 
 function getWalletForAccount (account, cb) {
@@ -324,6 +379,7 @@ function configureSignals () {
 
 configure()
 configureSignals()
+connectPostgres()
 connectRedis()
 connectMQTT()
 startRESTServer()

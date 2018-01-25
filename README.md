@@ -4,7 +4,7 @@ Canoed is a backend for the Canoe RaiBlocks wallet. It uses a rai_node and creat
 ## Nodejs
 Canoed was first written in Nim, a modern high performance language that produces small and fast binaries by compiling via C. I love Nim, but we switched to Nodejs because there is no properly working MQTT library in Nim. The code style is fairly plain vanilla.
 
-## Runing Canoed
+## Running Canoed
 It's the standard:
 
 ```
@@ -14,7 +14,7 @@ nodejs canoed.js
 
 See source code to find the default `canoed.conf` JSON configuration.
 
-### Adding service
+### Adding a systemd service
 This presumes you already have a rai_node.service defined according to [the wiki page](https://github.com/clemahieu/raiblocks/wiki/Running-rai_node-as-a-service).
 
 Create `/etc/systemd/system/canoed.service`:
