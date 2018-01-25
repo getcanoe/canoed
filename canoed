@@ -59,8 +59,6 @@ var config = {
   mqtt: {
     url: 'tcp://localhost',
     options: {
-      mountpoint: '',
-      clientId: 'canoed',
       username: 'canoed',
       password: '1234'
     },
@@ -141,8 +139,8 @@ async function initializeDb () {
     client.release()
   }
   await createAccount({
-    token: 'canoed',
-    tokenpass: '1234',
+    token: mqtt.options.username,
+    tokenPass: mqtt.options.password,
     pubacl: '[{"pattern":"#"}]',
     subacl: '[{"pattern":"#"}]'
   })
@@ -286,9 +284,9 @@ function availableSupply (spec) {
   return callRainode(spec)
 }
 
-// Create an account given a token and a tokenpass
+// Create an account given a token and a tokenPass
 async function createAccount (spec) {
-  var values = [spec.token, spec.tokenpass,
+  var values = [spec.token, spec.tokenPass,
     spec.pubacl || config.mqtt.pubacl,
     spec.subacl || config.mqtt.subacl]
   var sql = `WITH x AS (
