@@ -50,7 +50,7 @@ var config = {
     host: 'localhost',
     database: 'canoe',
     password: 'secretpassword',
-    port: 3211
+    port: 5432
   },
   redis: {
     host: 'localhost',
@@ -59,9 +59,13 @@ var config = {
   mqtt: {
     url: 'tcp://localhost',
     options: {
-      username: 'test',
-      password: 'gurka'
+      mountpoint: '',
+      clientId: 'canoed',
+      username: 'canoed',
+      password: '1234'
     },
+    subacl: '["#"]',
+    pubacl: '["#"]',
     block: {
       opts: {
         qos: 2,
@@ -113,21 +117,35 @@ function connectPostgres () {
 }
 
 // Initialize database for VerneMQ auth
+// We also need:  CREATE EXTENSION pgcrypto;
+// But that needs superuser privilege to do.
 async function initializeDb () {
   var sql = `
-    CREATE EXTENSION pgcrypto;
-    CREATE TABLE vmq_auth_acl
-    (
-      mountpoint character varying(10) NOT NULL,
-      client_id character varying(128) NOT NULL,
-      username character varying(128) NOT NULL,
-      password character varying(128),
-      publish_acl json,
-      subscribe_acl json,
-      CONSTRAINT vmq_auth_acl_primary_key PRIMARY KEY (mountpoint, client_id, username)
-    );`
-  var res = await pool.query(sql)
-  await pool.end()
+  DROP TABLE public.vmq_auth_acl;
+  CREATE TABLE vmq_auth_acl
+  (
+    mountpoint character varying(10) NOT NULL,
+    client_id character varying(128) NOT NULL,
+    username character varying(128) NOT NULL,
+    password character varying(128),
+    publish_acl json,
+    subscribe_acl json,
+    CONSTRAINT vmq_auth_acl_primary_key PRIMARY KEY (mountpoint, client_id, username)
+  );`
+  const client = await pool.connect()
+  try {
+    await client.query(sql)
+  } catch (e) {
+    winston.error('Error initializing db: ' + e)
+  } finally {
+    client.release()
+  }
+  await createAccount({
+    token: 'canoed',
+    tokenpass: '1234',
+    pubacl: '[{"pattern":"#"}]',
+    subacl: '[{"pattern":"#"}]'
+  })
 }
 
 // Connect Redis
@@ -216,7 +234,7 @@ function startRESTServer () {
     var action = req.body.action
     switch (action) {
       case 'create_account':
-        return createAccount(spec).then((r) => { res.json(r) })
+        return createAccount(spec).then((r) => { res.json({}) })
       case 'canoe_server_status':
         return res.json(canoeServerStatus(spec))
       case 'quota_full':
@@ -270,7 +288,9 @@ function availableSupply (spec) {
 
 // Create an account given a token and a tokenpass
 async function createAccount (spec) {
-  var values = [spec.token, spec.tokenpass, config.postgres.pubacl, config.postgres.subacl]
+  var values = [spec.token, spec.tokenpass,
+    spec.pubacl || config.mqtt.pubacl,
+    spec.subacl || config.mqtt.subacl]
   var sql = `WITH x AS (
     SELECT
         ''::text AS mountpoint,
@@ -290,8 +310,14 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
         publish_acl,
         subscribe_acl
     FROM x;`
-  const res = await pool.query(sql, values)
-  await pool.end()
+  const client = await pool.connect()
+  try {
+    await client.query(sql, values)
+  } catch (e) {
+    winston.error('Error creating account: ' + e)
+  } finally {
+    client.release()
+  }
 }
 
 function getWalletForAccount (account, cb) {
@@ -371,7 +397,9 @@ function handleAppExit (options, err) {
   }
   if (options.cleanup) {
     winston.info('Cleaning up...')
-    mqttClient.end(true)
+    if (mqttClient) {
+      mqttClient.end(true)
+    }
   }
   if (options.exit) {
     winston.info('Calling exit...')
@@ -411,8 +439,8 @@ if (args["--initialize"]) {
       process.exit(0)
     }
   )
+} else {
+  connectRedis()
+  connectMQTT()
+  startRESTServer()
 }
-
-connectRedis()
-connectMQTT()
-startRESTServer()
