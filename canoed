@@ -8,7 +8,7 @@ const fs = require('fs')
 const express = require('express')
 const bodyParser = require('body-parser')
 const mqtt = require('mqtt')
-// const mqttRegex = require('mqtt-regex')  // Can be useful to parse out parameters from wildcard MQTT topics
+const mqttRegex = require('mqtt-regex')  // Can be useful to parse out parameters from wildcard MQTT topics
 const request = require('request')
 // const util = require('util')
 // const schedule = require('node-schedule')
@@ -59,11 +59,12 @@ var config = {
   mqtt: {
     url: 'tcp://localhost',
     options: {
+      clientId: 'canoed',
       username: 'canoed',
       password: '1234'
     },
-    subacl: '["#"]',
-    pubacl: '["#"]',
+    subacl: '[{"pattern": "#"}]',
+    pubacl: '[{"pattern": "#"}]',
     block: {
       opts: {
         qos: 2,
@@ -86,9 +87,8 @@ var redisClient = null
 var restServer = null
 
 // Patterns for topics
-// var xxxMqttRegex = mqttRegex('apartments/+apartment/blind/switch').exec
-// var configMqttRegex = mqttRegex('apartments/+apartment/blind/config').exec
-// var scheduleConfigMqttRegex = mqttRegex('apartments/+apartment/schedule/config').exec
+var walletMqttRegex = mqttRegex('wallet/+id/accounts').exec
+var broadcastMqttRegex = mqttRegex('broadcast/+account').exec
 
 // Flag to indicate we have already subscribed to topics
 var subscribed = false
@@ -139,6 +139,7 @@ async function initializeDb () {
     client.release()
   }
   await createAccount({
+    wallet: mqtt.options.username, // This maps to clientId
     token: mqtt.options.username,
     tokenPass: mqtt.options.password,
     pubacl: '[{"pattern":"#"}]',
@@ -148,10 +149,11 @@ async function initializeDb () {
 
 // Connect Redis
 function connectRedis () {
+  winston.info('Connecting to Redis ...')
   redisClient = redis.createClient(config.redis.port, config.redis.host, {no_ready_check: true})
-  redisClient.auth('password', function (err) {
+  /*redisClient.auth('password', function (err) {
     if (err) throw err
-  })
+  })*/
   redisClient.on('connect', function () {
     winston.info('Connected to Redis')
   })
@@ -171,22 +173,14 @@ function connectMQTT () {
       case 'canoecontrol':
         return handleControl(message)
     }
-    /*
-      var params = switchMqttRegex(topic)
-      if (params) {
-        return handleSwitch(params.apartment, message)
-      }
-      params = configMqttRegex(topic)
-      if (params) {
-        return handleBlindConfig(params.apartment, message)
-      }
-
-      params = scheduleConfigMqttRegex(topic)
-      if (params) {
-        return handleScheduleConfig(params.apartment, message)
-      }
-    */
-
+    var params = walletMqttRegex(topic)
+    if (params) {
+      return handleWalletAccounts(params.id, message)
+    }
+    var params = broadcastMqttRegex(topic)
+    if (params) {
+      return handleBroadcastBlock(params.account, message)
+    }
     winston.error('No handler for topic %s', topic)
   })
 }
@@ -199,15 +193,32 @@ function publishBlock (topic, payload) {
 function subscribe () {
   if (!subscribed) {
     mqttClient.subscribe('canoecontrol')
+    mqttClient.subscribe('wallet/+/accounts')
+    mqttClient.subscribe('broadcast/+') // account number
     winston.debug('SUBSCRIBED')
     // /+/ for wildcards
     subscribed = true
   }
 }
 
+function handleWalletAccounts (walletId, message) {
+  var accounts = JSON.parse(message)
+  setWalletForAccounts(accounts, walletId, (err, res) => {
+    if (err) {
+      winston.error('Error setting wallet for accounts: ' + err)
+    } else {
+      winston.debug('Set wallet ' + walletId +' for accounts ' + message)
+    }
+  })
+}
+
+function handleBroadcastBlock (account, message) {
+  winston.debug('Broadcast for account ' + account + ' block ' + message)
+}
+
 function handleControl (message) {
   var control = JSON.parse(message)
-  winston.winston.debug('PARSED CONTROL: ', control)
+  winston.debug('PARSED CONTROL: ', control)
   // TODO handle control commands
 }
 
@@ -231,7 +242,7 @@ function startRESTServer () {
     var spec = req.body
     var action = req.body.action
     switch (action) {
-      case 'create_account':
+      case 'create_server_account':
         return createAccount(spec).then((r) => { res.json({}) })
       case 'canoe_server_status':
         return res.json(canoeServerStatus(spec))
@@ -284,20 +295,20 @@ function availableSupply (spec) {
   return callRainode(spec)
 }
 
-// Create an account given a token and a tokenPass
+// Create an account given a walletId, token and a tokenPass
 async function createAccount (spec) {
-  var values = [spec.token, spec.tokenPass,
+  var values = [spec.wallet, spec.token, spec.tokenPass,
     spec.pubacl || config.mqtt.pubacl,
     spec.subacl || config.mqtt.subacl]
   var sql = `WITH x AS (
     SELECT
         ''::text AS mountpoint,
            $1::text AS client_id,
-           $1::text AS username,
-           $2::text AS password,
+           $2::text AS username,
+           $3::text AS password,
            gen_salt('bf')::text AS salt,
-           $3::json AS publish_acl,
-           $4::json AS subscribe_acl
+           $4::json AS publish_acl,
+           $5::json AS subscribe_acl
     ) 
 INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl, subscribe_acl)
     SELECT 
@@ -319,8 +330,17 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
 }
 
 function getWalletForAccount (account, cb) {
-  // client.set("foo", "bar", redis.print)
   redisClient.get('account:' + account, cb)
+}
+
+
+function setWalletForAccounts (accounts, walletId, cb) {
+  var pairs = []
+  for (let acc of accounts) {
+    pairs.push('accounts:' + acc)
+    pairs.push(walletId)
+  }
+  redisClient.set(pairs, cb)
 }
 
 function handleRaiCallback (blk) {
