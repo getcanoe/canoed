@@ -186,6 +186,7 @@ function connectMQTT () {
 }
 
 function publishBlock (topic, payload) {
+  winston.debug('Publish: ' + topic + ' block: ' + JSON.stringify(payload))
   mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.block.opts)
 }
 
@@ -250,6 +251,9 @@ function startRESTServer () {
         return res.json(quotaFull(spec))
       case 'update_server_map':
         return res.json(updateServerMap(spec))
+      case 'process':
+        return processBlock(spec).then((r) => { res.json(r) })
+        //res.json(processBlock(spec))
       case 'available_supply':
         return availableSupply(spec).then((r) => { res.json(r) })
       default:
@@ -295,6 +299,10 @@ function availableSupply (spec) {
   return callRainode(spec)
 }
 
+function processBlock (spec) {
+  return callRainode(spec)
+}
+
 // Create an account given a walletId, token and a tokenPass
 async function createAccount (spec) {
   var values = [spec.wallet, spec.token, spec.tokenPass,
@@ -330,7 +338,8 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
 }
 
 function getWalletForAccount (account, cb) {
-  redisClient.get('account:' + account, cb)
+  winston.debug('Get wallet for account: ' + account)
+  redisClient.get('accounts:' + account, cb)
 }
 
 
@@ -344,6 +353,7 @@ function setWalletForAccounts (accounts, walletId, cb) {
 }
 
 function handleRaiCallback (blk) {
+  // winston.debug('Block: ' + JSON.stringify(blk))
   var blk2 = JSON.parse(blk.block)
   winston.debug('Acc: ' + blk.account + ' Block: ' + blk2.type + ' amount: ' + blk.amount)
 
@@ -358,16 +368,17 @@ function handleRaiCallback (blk) {
       getWalletForAccount(account, function (err, wallet) {
         if (err) throw err
         if (wallet) {
-          publishBlock('wallet/' + wallet.toString() + '/open', blk)
+          winston.debug('Wallet found: ' + wallet.toString())
+          publishBlock('wallet/' + wallet.toString() + '/block/open', blk)
         }
       })
       return
     case 'send':
-      account = blk.destination
+      account = blk2.destination
       getWalletForAccount(account, function (err, wallet) {
         if (err) throw err
         if (wallet) {
-          publishBlock('wallet/' + wallet.toString() + '/send', blk)
+          publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
         }
       })
       return
@@ -375,7 +386,7 @@ function handleRaiCallback (blk) {
       getWalletForAccount(account, function (err, wallet) {
         if (err) throw err
         if (wallet) {
-          publishBlock('wallet/' + wallet + '/receive', blk)
+          publishBlock('wallet/' + wallet.toString() + '/block/receive', blk)
         }
       })
       return
