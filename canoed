@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * This is a service that has an express HTTP server, connects to an MQTT server
+ * This is a service that has an express HTTP server exposing a subset of the rai_node
+ * RPC protocol. It also connects to an MQTT server
  * for pub/sub operations and uses Redis and PostgreSQL for state management.
  */
 
@@ -8,10 +9,8 @@ const fs = require('fs')
 const express = require('express')
 const bodyParser = require('body-parser')
 const mqtt = require('mqtt')
-const mqttRegex = require('mqtt-regex')  // Can be useful to parse out parameters from wildcard MQTT topics
+const mqttRegex = require('mqtt-regex')  // Used to parse out parameters from wildcard MQTT topics
 const request = require('request')
-// const util = require('util')
-// const schedule = require('node-schedule')
 const extend = require('extend')       // To merge objects
 const winston = require('winston')     // Solid logging lib
 const redis = require('redis')         // For maintaining session state
@@ -24,8 +23,6 @@ Usage:
   canoed [--initialize] [--config=<path>]
   canoed -h | --help | --version
 `, { optionsFirst: true, smartOptions: true })
-
-console.log("ARGS: " + JSON.stringify(args))
 
 // Default config that is extended (merged) with CONFIG_FILE
 var CONFIG_FILE = 'canoed.conf'
@@ -253,7 +250,6 @@ function startRESTServer () {
         return res.json(updateServerMap(spec))
       case 'process':
         return processBlock(spec).then((r) => { res.json(r) })
-        //res.json(processBlock(spec))
       case 'available_supply':
         return availableSupply(spec).then((r) => { res.json(r) })
       case 'accounts_pending':
@@ -469,7 +465,6 @@ function configureSignals () {
 
 
 // Let's start doing something
-
 configure()
 configureSignals()
 connectPostgres()
