@@ -42,7 +42,7 @@ var config = {
     port: 8080
   },
   rainode: {
-    host: 'localhost',
+    host: '[::1]',
     port: 7076
   },
   postgres: {
@@ -256,6 +256,12 @@ function startRESTServer () {
         //res.json(processBlock(spec))
       case 'available_supply':
         return availableSupply(spec).then((r) => { res.json(r) })
+      case 'accounts_pending':
+        return accountsPending(spec).then((r) => { res.json(r) })
+      case 'account_history':
+        return accountHistory(spec).then((r) => { res.json(r) })
+      case 'blocks_info':
+        return blocksInfo(spec).then((r) => { res.json(r) })
       default:
         return res.json({error: 'unknown action'})
     }
@@ -296,6 +302,18 @@ function canoeServerStatus (spec) {
 }
 
 function availableSupply (spec) {
+  return callRainode(spec)
+}
+
+function accountsPending (spec) {
+  return callRainode(spec)
+}
+
+function accountHistory (spec) {
+  return callRainode(spec)
+}
+
+function blocksInfo (spec) {
   return callRainode(spec)
 }
 
