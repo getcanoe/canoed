@@ -9,7 +9,7 @@ It's the standard:
 
 ```
 npm install
-nodejs canoed.js
+./canoed
 ```
 
 See source code to find the default `canoed.conf` JSON configuration.
@@ -25,9 +25,9 @@ Create `/etc/systemd/system/canoed.service`:
     After=network.target httpd.service rai_node.service
 
     [Service]
-    User=canoe
-    WorkingDirectory=/home/canoe
-    ExecStart=/usr/bin/nodejs /home/canoe/canoed/canoe.js
+    User=canoed
+    WorkingDirectory=/home/canoed
+    ExecStart=/home/canoed/canoed/canoed
     KillMode=mixed
     KillSignal=SIGTERM
     Restart=always
