@@ -116,7 +116,7 @@ function connectPostgres () {
 // But that needs superuser privilege to do.
 async function initializeDb () {
   var sql = `
-  DROP TABLE public.vmq_auth_acl;
+  DROP TABLE IF EXISTS public.vmq_auth_acl;
   CREATE TABLE vmq_auth_acl
   (
     mountpoint character varying(10) NOT NULL,
@@ -136,9 +136,9 @@ async function initializeDb () {
     client.release()
   }
   await createAccount({
-    wallet: mqtt.options.username, // This maps to clientId
-    token: mqtt.options.username,
-    tokenPass: mqtt.options.password,
+    wallet: config.mqtt.options.username, // This maps to clientId
+    token: config.mqtt.options.username,
+    tokenPass: config.mqtt.options.password,
     pubacl: '[{"pattern":"#"}]',
     subacl: '[{"pattern":"#"}]'
   })
