@@ -1,0 +1,120 @@
+#!/usr/bin/env node
+
+const fs = require('fs')
+const extend = require('extend')       // To merge objects
+const winston = require('winston')     // Solid logging lib
+const { Pool } = require('pg')         // For proper database stuff
+const neodoc = require('neodoc')       // For nice command line opts
+
+// Parse out command line
+const args = neodoc.run(`
+Usage:
+  addmqttuser <username> <password> <clientId> [--config=<path>]
+  addmqttuser -h | --help | --version
+`, { optionsFirst: true, smartOptions: true })
+
+// Default config that is extended (merged) with CONFIG_FILE
+var CONFIG_FILE = 'canoed.conf'
+if (args["--config"]) {
+  CONFIG_FILE = args["--config"]
+}
+
+var config = {
+  logging: {
+    level: 'info'
+  },
+  debug: false,
+  postgres: {
+    user: 'canoe',
+    host: 'localhost',
+    database: 'canoe',
+    password: 'secretpassword',
+    port: 5432
+  }
+}
+
+var username = args["<username>"]
+var password = args["<password>"]
+var clientId = args["<clientId>"]
+
+//console.log( "Username: "  + username)
+//process.exit(0)
+// Postgres pool client
+var pool = null
+
+// Read configuration
+function configure () {
+  // Read config file if exists
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      var fileConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
+      extend(true, config, fileConfig)
+    } catch (e) {
+      winston.error('Failed to parse config file: ' + CONFIG_FILE + e.message)
+      process.exit(1)
+    }
+  }
+  winston.level = config.logging.level
+}
+
+// Connect Postgres
+function connectPostgres () {
+  pool = new Pool(config.postgres)
+  winston.info('Connected to Postgres')
+}
+
+
+// Create an account given a walletId, token and a tokenPass
+async function createAccount (spec) {
+  var values = [spec.wallet, spec.token, spec.tokenPass,
+    spec.pubacl || config.mqtt.pubacl,
+    spec.subacl || config.mqtt.subacl]
+  var sql = `WITH x AS (
+    SELECT
+        ''::text AS mountpoint,
+           $1::text AS client_id,
+           $2::text AS username,
+           $3::text AS password,
+           gen_salt('bf')::text AS salt,
+           $4::json AS publish_acl,
+           $5::json AS subscribe_acl
+    ) 
+INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl, subscribe_acl)
+    SELECT 
+        x.mountpoint,
+        x.client_id,
+        x.username,
+        crypt(x.password, x.salt),
+        publish_acl,
+        subscribe_acl
+    FROM x;`
+  const client = await pool.connect()
+  try {
+    await client.query(sql, values)
+  } catch (e) {
+    winston.error('Error creating account: ' + e)
+  } finally {
+    client.release()
+  }
+}
+
+
+// Let's start doing something
+configure()
+connectPostgres()
+
+createAccount({
+  wallet: clientId, // This maps to clientId
+  token: username,
+  tokenPass: password,
+  pubacl: '[{"pattern":"#"}]',
+  subacl: '[{"pattern":"#"}]'
+}).then(
+    text => {
+        console.log('Added ' + username);
+    },
+    err => {
+        console.log('Error: ' + err)
+    }
+);
+
