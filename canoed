@@ -241,7 +241,7 @@ function startRESTServer () {
     var action = req.body.action
     switch (action) {
       case 'create_server_account':
-        return createAccount(spec).then((r) => { res.json({}) })
+        return createAccount(spec).then((r) => { res.json(r) })
       case 'canoe_server_status':
         return res.json(canoeServerStatus(spec))
       case 'quota_full':
@@ -349,9 +349,13 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
     FROM x;`
   const client = await pool.connect()
   try {
+    winston.debug('Creating account: ' + JSON.stringify(values))
     await client.query(sql, values)
+    winston.debug('Created account: ' + JSON.stringify(values))
+    return {status: 'ok'}
   } catch (e) {
     winston.error('Error creating account: ' + e)
+    return {error: '' + e}
   } finally {
     client.release()
   }
