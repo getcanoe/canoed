@@ -346,7 +346,7 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
         crypt(x.password, x.salt),
         publish_acl,
         subscribe_acl
-    FROM x;`
+    FROM x ON CONFLICT DO NOTHING;`
   const client = await pool.connect()
   try {
     winston.debug('Creating account: ' + JSON.stringify(values))
@@ -365,7 +365,6 @@ function getWalletForAccount (account, cb) {
   winston.debug('Get wallet for account: ' + account)
   redisClient.get('accounts:' + account, cb)
 }
-
 
 function setWalletForAccounts (accounts, walletId, cb) {
   var pairs = []
