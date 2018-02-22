@@ -16,6 +16,7 @@ const winston = require('winston')     // Solid logging lib
 const redis = require('redis')         // For maintaining session state
 const { Pool } = require('pg')         // For proper database stuff
 const neodoc = require('neodoc')       // For nice command line opts
+const {promisify} = require('util')    // Promises for redisClient
 
 // Parse out command line
 const args = neodoc.run(`
@@ -79,6 +80,8 @@ var pool = null
 
 // Redis Client
 var redisClient = null
+var asyncSet
+var asyncGet
 
 // An Express server to handle REST calls, either from Canoe or from rai_node callback
 var restServer = null
@@ -148,6 +151,8 @@ async function initializeDb () {
 function connectRedis () {
   winston.info('Connecting to Redis ...')
   redisClient = redis.createClient(config.redis.port, config.redis.host, {no_ready_check: true})
+  asyncSet = promisify(redisClient.set).bind(redisClient);
+  asyncGet = promisify(redisClient.get).bind(redisClient);
   /*redisClient.auth('password', function (err) {
     if (err) throw err
   })*/
@@ -201,12 +206,10 @@ function subscribe () {
 
 function handleWalletAccounts (walletId, message) {
   var accounts = JSON.parse(message)
-  setWalletForAccounts(accounts, walletId, (err, res) => {
-    if (err) {
-      winston.error('Error setting wallet for accounts: ' + err)
-    } else {
-      winston.debug('Set wallet ' + walletId +' for accounts ' + message)
-    }
+  setWalletForAccounts(accounts, walletId).then((res) => {
+    winston.debug('Set wallet ' + walletId +' for accounts ' + message)
+  }, (err) => {
+    winston.error('Error setting wallet for accounts: ' + err)
   })
 }
 
@@ -378,13 +381,12 @@ function getWalletForAccount (account, cb) {
   redisClient.get('accounts:' + account, cb)
 }
 
-function setWalletForAccounts (accounts, walletId, cb) {
-  var pairs = []
+function setWalletForAccounts (accounts, walletId) {
+  var promises = []
   for (let acc of accounts) {
-    pairs.push('accounts:' + acc)
-    pairs.push(walletId)
+    promises.push(asyncSet('accounts:' + acc, walletId))
   }
-  redisClient.set(pairs, cb)
+  return Promise.all(promises)
 }
 
 function handleRaiCallback (blk) {
