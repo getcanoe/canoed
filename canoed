@@ -252,6 +252,10 @@ function startRESTServer () {
         return processBlock(spec).then((r) => { res.json(r) })
       case 'available_supply':
         return availableSupply(spec).then((r) => { res.json(r) })
+      case 'ledger':
+        return ledger(spec).then((r) => { res.json(r) })
+      case 'chain':
+        return chain(spec).then((r) => { res.json(r) })
       case 'accounts_pending':
         return accountsPending(spec).then((r) => { res.json(r) })
       case 'account_history':
@@ -304,6 +308,14 @@ function availableSupply (spec) {
 }
 
 function accountsPending (spec) {
+  return callRainode(spec)
+}
+
+function ledger (spec) {
+  return callRainode(spec)
+}
+
+function chain (spec) {
   return callRainode(spec)
 }
 
