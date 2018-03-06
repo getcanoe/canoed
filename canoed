@@ -27,8 +27,8 @@ Usage:
 
 // Default config that is extended (merged) with CONFIG_FILE
 var CONFIG_FILE = 'canoed.conf'
-if (args["--config"]) {
-  CONFIG_FILE = args["--config"]
+if (args['--config']) {
+  CONFIG_FILE = args['--config']
 }
 
 var config = {
@@ -119,8 +119,12 @@ function connectPostgres () {
 // But that needs superuser privilege to do.
 async function initializeDb () {
   var sql = `
-  DROP TABLE IF EXISTS public.vmq_auth_acl;
-  CREATE TABLE vmq_auth_acl
+  CREATE TABLE IF NOT EXISTS block_timestamp (
+    hash varchar(64) NOT NULL,  
+    timestamp timestamp default current_timestamp,  
+    PRIMARY KEY (hash)  
+  );
+  CREATE TABLE IF NOT EXISTS vmq_auth_acl
   (
     mountpoint character varying(10) NOT NULL,
     client_id character varying(128) NOT NULL,
@@ -151,8 +155,8 @@ async function initializeDb () {
 function connectRedis () {
   winston.info('Connecting to Redis ...')
   redisClient = redis.createClient(config.redis.port, config.redis.host, {no_ready_check: true})
-  asyncSet = promisify(redisClient.set).bind(redisClient);
-  asyncGet = promisify(redisClient.get).bind(redisClient);
+  asyncSet = promisify(redisClient.set).bind(redisClient)
+  asyncGet = promisify(redisClient.get).bind(redisClient)
   /*redisClient.auth('password', function (err) {
     if (err) throw err
   })*/
@@ -207,7 +211,7 @@ function subscribe () {
 function handleWalletAccounts (walletId, message) {
   var accounts = JSON.parse(message)
   setWalletForAccounts(accounts, walletId).then((res) => {
-    winston.debug('Set wallet ' + walletId +' for accounts ' + message)
+    winston.debug('Set wallet ' + walletId + ' for accounts ' + message)
   }, (err) => {
     winston.error('Error setting wallet for accounts: ' + err)
   })
@@ -326,8 +330,19 @@ function accountHistory (spec) {
   return callRainode(spec)
 }
 
-function blocksInfo (spec) {
-  return callRainode(spec)
+async function blocksInfo (spec) {
+  return callRainode(spec).then((obj) => {
+    // Now we want to attach proper timestamps to retreived blocks
+    var ps = []
+    var blocks = obj.blocks
+    // Using this style to get proper closure
+    Object.keys(blocks).forEach(function (hash) {
+      ps.push(getTimestamp(hash).then((ts) => {
+        blocks[hash].timestamp = ts.timestamp
+      }))
+    })
+    return Promise.all(ps).then(() => { return obj })
+  })
 }
 
 function workGenerate (spec) {
@@ -336,6 +351,37 @@ function workGenerate (spec) {
 
 function processBlock (spec) {
   return callRainode(spec)
+}
+
+// Create a timestamp record for given block hash
+async function createTimestamp (hash) {
+  var values = [hash]
+  var sql = `INSERT INTO block_timestamp(hash) VALUES($1);`
+  const client = await pool.connect()
+  try {
+    // winston.debug('Creating block: ' + JSON.stringify(values))
+    await client.query(sql, values)
+    // winston.debug('Created block: ' + JSON.stringify(values))
+  } catch (e) {
+    winston.error('Error creating block: ' + e)
+  } finally {
+    client.release()
+  }
+}
+
+// Get the timestamp for given block hash
+async function getTimestamp (hash) {
+  var values = [hash]
+  var sql = `SELECT (timestamp) FROM block_timestamp WHERE hash = $1;`
+  const client = await pool.connect()
+  try {
+    const res = await client.query(sql, values)
+    return res.rows[0]
+  } catch (e) {
+    winston.error('Error getting block: ' + e)
+  } finally {
+    client.release()
+  }
 }
 
 // Create an account given a walletId, token and a tokenPass
@@ -390,13 +436,15 @@ function setWalletForAccounts (accounts, walletId) {
 }
 
 function handleRaiCallback (blk) {
-  // winston.debug('Block: ' + JSON.stringify(blk))
   var blk2 = JSON.parse(blk.block)
   winston.debug('Acc: ' + blk.account + ' Block: ' + blk2.type + ' amount: ' + blk.amount)
 
   // Now we can pick out type of block
   var blkType = blk2.type
   var account = blk.account
+
+  // Create timestamp for this block
+  createTimestamp(blk.hash)
   // var amount = blk.amount
 
   // Switch on block type
@@ -486,13 +534,12 @@ function configureSignals () {
   }))
 }
 
-
 // Let's start doing something
 configure()
 configureSignals()
 connectPostgres()
 
-if (args["--initialize"]) {
+if (args['--initialize']) {
   winston.debug('Initializing database ...')
   initializeDb().then(
     () => {

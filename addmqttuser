@@ -15,8 +15,8 @@ Usage:
 
 // Default config that is extended (merged) with CONFIG_FILE
 var CONFIG_FILE = 'canoed.conf'
-if (args["--config"]) {
-  CONFIG_FILE = args["--config"]
+if (args['--config']) {
+  CONFIG_FILE = args['--config']
 }
 
 var config = {
@@ -33,12 +33,12 @@ var config = {
   }
 }
 
-var username = args["<username>"]
-var password = args["<password>"]
-var clientId = args["<clientId>"]
+var username = args['<username>']
+var password = args['<password>']
+var clientId = args['<clientId>']
 
-//console.log( "Username: "  + username)
-//process.exit(0)
+// console.log( "Username: "  + username)
+// process.exit(0)
 // Postgres pool client
 var pool = null
 
@@ -62,7 +62,6 @@ function connectPostgres () {
   pool = new Pool(config.postgres)
   winston.info('Connected to Postgres')
 }
-
 
 // Create an account given a walletId, token and a tokenPass
 async function createAccount (spec) {
@@ -98,7 +97,6 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
   }
 }
 
-
 // Let's start doing something
 configure()
 connectPostgres()
@@ -111,10 +109,9 @@ createAccount({
   subacl: '[{"pattern":"#"}]'
 }).then(
     text => {
-        console.log('Added ' + username);
+      console.log('Added ' + username)
     },
     err => {
-        console.log('Error: ' + err)
+      console.log('Error: ' + err)
     }
-);
-
+)
