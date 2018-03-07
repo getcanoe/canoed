@@ -363,7 +363,7 @@ async function createTimestamp (hash) {
   try {
     // winston.debug('Creating block: ' + JSON.stringify(values))
     const res = await client.query(sql, values)
-    return res.rows[0]
+    return new Date(res.rows[0].timestamp).getTime()
     // winston.debug('Created block: ' + JSON.stringify(values))
   } catch (e) {
     winston.error('Error creating block: ' + e)
@@ -450,7 +450,7 @@ function handleRaiCallback (blk) {
   createTimestamp(blk.hash).then((ts) => {
     winston.debug('INSERT: ' + JSON.stringify(ts))
     if (ts) {
-      blk.timestamp = ts.timestamp
+      blk.timestamp = ts
     }
     // Switch on block type
     switch (blkType) {
