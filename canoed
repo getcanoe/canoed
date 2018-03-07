@@ -358,11 +358,12 @@ function processBlock (spec) {
 // Create a timestamp record for given block hash
 async function createTimestamp (hash) {
   var values = [hash]
-  var sql = `INSERT INTO block_timestamp(hash) VALUES($1);`
+  var sql = `INSERT INTO block_timestamp(hash) VALUES($1) RETURNING *;`
   const client = await pool.connect()
   try {
     // winston.debug('Creating block: ' + JSON.stringify(values))
-    await client.query(sql, values)
+    const res = await client.query(sql, values)
+    return res.rows[0]
     // winston.debug('Created block: ' + JSON.stringify(values))
   } catch (e) {
     winston.error('Error creating block: ' + e)
@@ -447,8 +448,8 @@ function handleRaiCallback (blk) {
 
   // Create timestamp for this block and add it to the block
   // A bit silly with a get directly after.
-  createTimestamp(blk.hash)
-  getTimestamp(blk.hash).then((ts) => {
+  createTimestamp(blk.hash).then((ts) => {
+    winston.debug('INSERT: ' + JSON.stringify(ts))
     if (ts) {
       blk.timestamp = ts.timestamp
     }
