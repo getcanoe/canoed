@@ -338,7 +338,9 @@ async function blocksInfo (spec) {
     // Using this style to get proper closure
     Object.keys(blocks).forEach(function (hash) {
       ps.push(getTimestamp(hash).then((ts) => {
-        blocks[hash].timestamp = ts.timestamp
+        if (ts) {
+          blocks[hash].timestamp = ts.timestamp
+        }
       }))
     })
     return Promise.all(ps).then(() => { return obj })
@@ -445,7 +447,6 @@ function handleRaiCallback (blk) {
 
   // Create timestamp for this block
   createTimestamp(blk.hash)
-  // var amount = blk.amount
 
   // Switch on block type
   switch (blkType) {
@@ -459,11 +460,19 @@ function handleRaiCallback (blk) {
       })
       return
     case 'send':
-      account = blk2.destination
-      getWalletForAccount(account, function (err, wallet) {
+      // Is this a send to one of our accounts?
+      getWalletForAccount(blk2.destination, function (err, wallet) {
         if (err) throw err
         if (wallet) {
           publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
+        } else {
+          // Or is this our send coming back from network?
+          getWalletForAccount(account, function (err, wallet) {
+            if (err) throw err
+            if (wallet) {
+              publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
+            }
+          })
         }
       })
       return
