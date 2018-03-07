@@ -447,55 +447,53 @@ function handleRaiCallback (blk) {
   var account = blk.account
 
   // Create timestamp for this block and add it to the block
-  // A bit silly with a get directly after.
   createTimestamp(blk.hash).then((ts) => {
     winston.debug('INSERT: ' + JSON.stringify(ts))
     if (ts) {
       blk.timestamp = ts.timestamp
     }
+    // Switch on block type
+    switch (blkType) {
+      case 'open':
+        getWalletForAccount(account, function (err, wallet) {
+          if (err) throw err
+          if (wallet) {
+            winston.debug('Wallet found: ' + wallet.toString())
+            publishBlock('wallet/' + wallet.toString() + '/block/open', blk)
+          }
+        })
+        return
+      case 'send':
+        // Is this a send to one of our accounts?
+        getWalletForAccount(blk2.destination, function (err, wallet) {
+          if (err) throw err
+          if (wallet) {
+            publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
+          } else {
+            // Or is this our send coming back from network?
+            getWalletForAccount(account, function (err, wallet) {
+              if (err) throw err
+              if (wallet) {
+                publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
+              }
+            })
+          }
+        })
+        return
+      case 'receive':
+        getWalletForAccount(account, function (err, wallet) {
+          if (err) throw err
+          if (wallet) {
+            publishBlock('wallet/' + wallet.toString() + '/block/receive', blk)
+          }
+        })
+        return
+      case 'change':
+        winston.debug('A change block ignored')
+        return
+    }
+    winston.error('Unknown block type: ' + blkType)
   })
-
-  // Switch on block type
-  switch (blkType) {
-    case 'open':
-      getWalletForAccount(account, function (err, wallet) {
-        if (err) throw err
-        if (wallet) {
-          winston.debug('Wallet found: ' + wallet.toString())
-          publishBlock('wallet/' + wallet.toString() + '/block/open', blk)
-        }
-      })
-      return
-    case 'send':
-      // Is this a send to one of our accounts?
-      getWalletForAccount(blk2.destination, function (err, wallet) {
-        if (err) throw err
-        if (wallet) {
-          publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
-        } else {
-          // Or is this our send coming back from network?
-          getWalletForAccount(account, function (err, wallet) {
-            if (err) throw err
-            if (wallet) {
-              publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
-            }
-          })
-        }
-      })
-      return
-    case 'receive':
-      getWalletForAccount(account, function (err, wallet) {
-        if (err) throw err
-        if (wallet) {
-          publishBlock('wallet/' + wallet.toString() + '/block/receive', blk)
-        }
-      })
-      return
-    case 'change':
-      winston.debug('A change block ignored')
-      return
-  }
-  winston.error('Unknown block type: ' + blkType)
 }
 
 // Make POST call to rai_node
