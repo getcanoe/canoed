@@ -445,8 +445,14 @@ function handleRaiCallback (blk) {
   var blkType = blk2.type
   var account = blk.account
 
-  // Create timestamp for this block
+  // Create timestamp for this block and add it to the block
+  // A bit silly with a get directly after.
   createTimestamp(blk.hash)
+  getTimestamp(blk.hash).then((ts) => {
+    if (ts) {
+      blk.timestamp = ts.timestamp
+    }
+  })
 
   // Switch on block type
   switch (blkType) {
