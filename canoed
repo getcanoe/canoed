@@ -448,7 +448,6 @@ function handleRaiCallback (blk) {
 
   // Create timestamp for this block and add it to the block
   createTimestamp(blk.hash).then((ts) => {
-    winston.debug('INSERT: ' + JSON.stringify(ts))
     if (ts) {
       blk.timestamp = ts
     }
@@ -489,7 +488,12 @@ function handleRaiCallback (blk) {
         })
         return
       case 'change':
-        winston.debug('A change block ignored')
+        getWalletForAccount(account, function (err, wallet) {
+          if (err) throw err
+          if (wallet) {
+            publishBlock('wallet/' + wallet.toString() + '/block/change', blk)
+          }
+        })
         return
     }
     winston.error('Unknown block type: ' + blkType)
