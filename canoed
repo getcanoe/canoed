@@ -339,7 +339,7 @@ async function blocksInfo (spec) {
     Object.keys(blocks).forEach(function (hash) {
       ps.push(getTimestamp(hash).then((ts) => {
         if (ts) {
-          blocks[hash].timestamp = ts.timestamp
+          blocks[hash].timestamp = ts
         }
       }))
     })
@@ -361,10 +361,8 @@ async function createTimestamp (hash) {
   var sql = `INSERT INTO block_timestamp(hash) VALUES($1) RETURNING *;`
   const client = await pool.connect()
   try {
-    // winston.debug('Creating block: ' + JSON.stringify(values))
     const res = await client.query(sql, values)
     return new Date(res.rows[0].timestamp).getTime()
-    // winston.debug('Created block: ' + JSON.stringify(values))
   } catch (e) {
     winston.error('Error creating block: ' + e)
   } finally {
