@@ -379,8 +379,11 @@ async function getTimestamp (hash) {
   const client = await pool.connect()
   try {
     const res = await client.query(sql, values)
-    winston.debug('RES: ' + JSON.stringify(res))
-    return new Date(res.rows[0]).getTime()
+    if (res.rowCount === 1) {
+      return new Date(res.rows[0].timestamp).getTime()
+    } else {
+      return null
+    }
   } catch (e) {
     winston.error('Error getting block: ' + e)
   } finally {
