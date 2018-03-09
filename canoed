@@ -355,7 +355,7 @@ function processBlock (spec) {
   return callRainode(spec)
 }
 
-// Create a timestamp record for given block hash
+// Create a timestamp record for given block hash, in milliseconds
 async function createTimestamp (hash) {
   var values = [hash]
   var sql = `INSERT INTO block_timestamp(hash) VALUES($1) RETURNING *;`
@@ -372,14 +372,14 @@ async function createTimestamp (hash) {
   }
 }
 
-// Get the timestamp for given block hash
+// Get the timestamp for given block hash, in milliseconds
 async function getTimestamp (hash) {
   var values = [hash]
   var sql = `SELECT (timestamp) FROM block_timestamp WHERE hash = $1;`
   const client = await pool.connect()
   try {
     const res = await client.query(sql, values)
-    return res.rows[0]
+    return new Date(res.rows[0].timestamp).getTime()
   } catch (e) {
     winston.error('Error getting block: ' + e)
   } finally {
