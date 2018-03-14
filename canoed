@@ -442,11 +442,12 @@ function setWalletForAccounts (accounts, walletId) {
 
 function handleRaiCallback (blk) {
   var blk2 = JSON.parse(blk.block)
-  winston.debug('Acc: ' + blk.account + ' Block: ' + blk2.type + ' amount: ' + blk.amount)
 
   // Now we can pick out type of block
   var blkType = blk2.type
   var account = blk.account
+
+  winston.debug('Acc: ' + account + ' Block: ' + blkType + ' amount: ' + blk.amount)
 
   // Create timestamp for this block and add it to the block
   createTimestamp(blk.hash).then((ts) => {
@@ -459,7 +460,6 @@ function handleRaiCallback (blk) {
         getWalletForAccount(account, function (err, wallet) {
           if (err) throw err
           if (wallet) {
-            winston.debug('Wallet found: ' + wallet.toString())
             publishBlock('wallet/' + wallet.toString() + '/block/open', blk)
           }
         })
@@ -470,14 +470,13 @@ function handleRaiCallback (blk) {
           if (err) throw err
           if (wallet) {
             publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
-          } else {
-            // Or is this our send coming back from network?
-            getWalletForAccount(account, function (err, wallet) {
-              if (err) throw err
-              if (wallet) {
-                publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
-              }
-            })
+          }
+        })
+        // Is this a send from one of our accounts? (can be both)
+        getWalletForAccount(account, function (err, wallet) {
+          if (err) throw err
+          if (wallet) {
+            publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
           }
         })
         return
