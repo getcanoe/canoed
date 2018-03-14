@@ -469,6 +469,7 @@ function handleRaiCallback (blk) {
         getWalletForAccount(blk2.destination, function (err, wallet) {
           if (err) throw err
           if (wallet) {
+            winston.debug('Send to: ' + blk2.destination + ' wallet: ' + wallet.toString())
             publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
           }
         })
@@ -476,6 +477,7 @@ function handleRaiCallback (blk) {
         getWalletForAccount(account, function (err, wallet) {
           if (err) throw err
           if (wallet) {
+            winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
             publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
           }
         })
