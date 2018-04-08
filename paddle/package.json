@@ -1,0 +1,22 @@
+{
+  "name": "paddle",
+  "description": "Canoe backend CLI",
+  "author": "Göran Krampe <goran.krampe@gmail.com>",
+  "dependencies": {
+    "body-parser": "^1.17.2",
+    "express": "^4.15.3",
+    "fs": "0.0.1-security",
+    "mqtt": "^2.7.2",
+    "mqtt-regex": "^1.0.5",
+    "neodoc": "^1.4.0",
+    "node-schedule": "^1.2.3",
+    "pg": "^7.4.1",
+    "redis": "^2.8.0",
+    "request": "^2.81.0",
+    "util": "^0.10.3",
+    "winston": "^2.4.0",
+    "xhr2": "^0.1.4"
+  },
+  "main": "paddle",
+  "version": "0.0.1"
+}

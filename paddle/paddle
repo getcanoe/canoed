@@ -1,0 +1,404 @@
+#!/usr/bin/env node
+/**
+ * This is a CLI tool for Canoed servers.
+ */
+
+const fs = require('fs')
+const mqtt = require('mqtt')
+const mqttRegex = require('mqtt-regex') // Used to parse out parameters from wildcard MQTT topics
+const request = require('request')
+const extend = require('extend') // To merge objects
+const winston = require('winston') // Solid logging lib
+const redis = require('redis') // For maintaining session state
+const { Pool } = require('pg') // For proper database stuff
+const neodoc = require('neodoc') // For nice command line opts
+const {promisify} = require('util') // Promises for redisClient
+
+// Parse out command line
+const args = neodoc.run(`
+Usage:
+  paddle [--config=<path>]
+  paddle get <account>
+  paddle -h | --help | --version
+`, { optionsFirst: true, smartOptions: true })
+
+// Default config that is extended (merged) with CONFIG_FILE
+var CONFIG_FILE = 'paddle.conf'
+if (args['--config']) {
+  CONFIG_FILE = args['--config']
+}
+
+var config = {
+  logging: {
+    level: 'info'
+  },
+  debug: false,
+  server: {
+    port: 8080
+  },
+  rainode: {
+    host: '[::1]',
+    port: 7076
+  },
+  postgres: {
+    user: 'canoe',
+    host: 'localhost',
+    database: 'canoe',
+    password: 'secretpassword',
+    port: 5432
+  },
+  redis: {
+    host: 'localhost',
+    port: 6379
+  },
+  mqtt: {
+    url: 'tcp://localhost',
+    options: {
+      clientId: 'canoed',
+      username: 'canoed',
+      password: '1234'
+    },
+    subacl: '[{"pattern": "#"}]',
+    pubacl: '[{"pattern": "#"}]',
+    block: {
+      opts: {
+        qos: 2,
+        retain: false
+      }
+    }
+  }
+}
+
+// MQTT Client
+var mqttClient = null
+
+// Postgres pool client
+var pool = null
+
+// Redis Client
+var redisClient = null
+var asyncSet
+var asyncGet
+
+// Patterns for topics
+var walletMqttRegex = mqttRegex('wallet/+id/accounts').exec // old one
+var walletRegisterMqttRegex = mqttRegex('wallet/+id/register').exec // new one, protocol v1
+var broadcastMqttRegex = mqttRegex('broadcast/+account').exec
+
+// Flag to indicate we have already subscribed to topics
+var subscribed = false
+
+// Read configuration
+function configure () {
+  // Read config file if exists
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      var fileConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
+      extend(true, config, fileConfig)
+    } catch (e) {
+      winston.error('Failed to parse config file: ' + CONFIG_FILE + e.message)
+      process.exit(1)
+    }
+  }
+  winston.level = config.logging.level
+}
+
+// Connect Postgres
+function connectPostgres () {
+  pool = new Pool(config.postgres)
+  winston.info('Connected to Postgres')
+}
+
+// Initialize database for VerneMQ auth
+// We also need:  CREATE EXTENSION pgcrypto;
+// But that needs superuser privilege to do.
+async function initializeDb () {
+  var sql = `
+  CREATE TABLE IF NOT EXISTS block_timestamp (
+    hash varchar(64) NOT NULL,  
+    timestamp timestamp default current_timestamp,  
+    PRIMARY KEY (hash)  
+  );
+  CREATE TABLE IF NOT EXISTS vmq_auth_acl
+  (
+    mountpoint character varying(10) NOT NULL,
+    client_id character varying(128) NOT NULL,
+    username character varying(128) NOT NULL,
+    password character varying(128),
+    publish_acl json,
+    subscribe_acl json,
+    CONSTRAINT vmq_auth_acl_primary_key PRIMARY KEY (mountpoint, client_id, username)
+  );`
+  const client = await pool.connect()
+  try {
+    await client.query(sql)
+  } catch (e) {
+    winston.error('Error initializing db: ' + e)
+  } finally {
+    client.release()
+  }
+  await createAccount({
+    wallet: config.mqtt.options.username, // This maps to clientId
+    token: config.mqtt.options.username,
+    tokenPass: config.mqtt.options.password,
+    pubacl: '[{"pattern":"#"}]',
+    subacl: '[{"pattern":"#"}]'
+  })
+}
+
+// Connect Redis
+function connectRedis () {
+  winston.info('Connecting to Redis ...')
+  redisClient = redis.createClient(config.redis.port, config.redis.host, {no_ready_check: true})
+  asyncSet = promisify(redisClient.set).bind(redisClient)
+  asyncGet = promisify(redisClient.get).bind(redisClient)
+  redisClient.on('connect', function () {
+    winston.info('Connected to Redis')
+  })
+}
+
+// Connect to MQTT
+function connectMQTT () {
+  mqttClient = mqtt.connect(config.mqtt.url, config.mqtt.options)
+  mqttClient.on('connect', function () {
+    winston.info('Connected to MQTT server')
+    subscribe()
+  })
+
+  // Where all subscribed messages come in
+  mqttClient.on('message', function (topic, message) {
+    switch (topic) {
+      case 'canoecontrol':
+        return handleControl(message)
+    }
+    var params = walletMqttRegex(topic)
+    if (params) {
+      return handleWalletAccounts(params.id, message)
+    }
+    params = walletRegisterMqttRegex(topic)
+    if (params) {
+      return handleWalletRegister(params.id, message)
+    }
+    params = broadcastMqttRegex(topic)
+    if (params) {
+      return handleBroadcastBlock(params.account, message)
+    }
+    winston.error('No handler for topic %s', topic)
+  })
+}
+
+function publishBlock (topic, payload) {
+  winston.debug('Publish: ' + topic + ' block: ' + JSON.stringify(payload))
+  mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.block.opts)
+}
+
+// Subscribe to control
+function subscribe () {
+  if (!subscribed) {
+    mqttClient.subscribe('canoecontrol')
+    mqttClient.subscribe('wallet/+/accounts')
+    mqttClient.subscribe('broadcast/+') // account number
+    winston.debug('Subscribed to selected topics')
+    // /+/ for wildcards
+    subscribed = true
+  }
+}
+
+// Old style registering only accounts
+function handleWalletAccounts (walletId, message) {
+  var accounts = JSON.parse(message)
+  setWalletForAccounts(accounts, walletId).then((res) => {
+    winston.debug('Set wallet ' + walletId + ' for accounts ' + message)
+  }, (err) => {
+    winston.error('Error setting wallet for accounts: ' + err)
+  })
+}
+
+// Protocol v1 style registering
+function handleWalletRegister (walletId, message) {
+  var register = JSON.parse(message)
+  // Pick out accounts
+  var accounts = register.accounts
+  delete register.accounts
+  // Add wallet id to register
+  register.wallet = walletId
+  setWalletForAccounts(accounts, register).then((res) => {
+    winston.debug('Set register for ' + walletId + ' for accounts ' + message)
+  }, (err) => {
+    winston.error('Error setting register for accounts: ' + err)
+  })
+}
+
+function handleBroadcastBlock (account, message) {
+  winston.debug('Broadcast for account ' + account + ' block ' + message)
+}
+
+function handleControl (message) {
+  var control = JSON.parse(message)
+  winston.debug('PARSED CONTROL: ', control)
+  // TODO handle control commands
+}
+
+async function blocksInfo (spec) {
+  return callRainode(spec).then((obj) => {
+    // Now we want to attach proper timestamps to retreived blocks
+    var ps = []
+    var blocks = obj.blocks
+    // Using this style to get proper closure
+    Object.keys(blocks).forEach(function (hash) {
+      ps.push(getTimestamp(hash).then((ts) => {
+        if (ts) {
+          blocks[hash].timestamp = ts
+        }
+      }))
+    })
+    return Promise.all(ps).then(() => { return obj })
+  })
+}
+// Get the timestamp for given block hash, in milliseconds
+async function getTimestamp (hash) {
+  var values = [hash]
+  var sql = `SELECT (timestamp) FROM block_timestamp WHERE hash = $1;`
+  const client = await pool.connect()
+  try {
+    const res = await client.query(sql, values)
+    if (res.rowCount === 1) {
+      return new Date(res.rows[0].timestamp).getTime()
+    } else {
+      return null
+    }
+  } catch (e) {
+    winston.error('Error getting block: ' + e)
+  } finally {
+    client.release()
+  }
+}
+
+// Create an account given a walletId, token and a tokenPass
+async function createAccount (spec) {
+  var values = [spec.wallet, spec.token, spec.tokenPass,
+    spec.pubacl || config.mqtt.pubacl,
+    spec.subacl || config.mqtt.subacl]
+  var sql = `WITH x AS (
+    SELECT
+        ''::text AS mountpoint,
+           $1::text AS client_id,
+           $2::text AS username,
+           $3::text AS password,
+           gen_salt('bf')::text AS salt,
+           $4::json AS publish_acl,
+           $5::json AS subscribe_acl
+    ) 
+INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl, subscribe_acl)
+    SELECT 
+        x.mountpoint,
+        x.client_id,
+        x.username,
+        crypt(x.password, x.salt),
+        publish_acl,
+        subscribe_acl
+    FROM x ON CONFLICT DO NOTHING;`
+  const client = await pool.connect()
+  try {
+    winston.debug('Creating account: ' + JSON.stringify(values))
+    await client.query(sql, values)
+    winston.debug('Created account: ' + JSON.stringify(values))
+    return {status: 'ok'}
+  } catch (e) {
+    winston.error('Error creating account: ' + e)
+    return {error: '' + e}
+  } finally {
+    client.release()
+  }
+}
+
+function isObject (o) {
+  return o !== null && typeof o === 'object'
+}
+
+function getWalletForAccount (account, cb) {
+  winston.debug('Get wallet for account: ' + account)
+  redisClient.get('accounts:' + account, cb)
+}
+
+// Make POST call to rai_node
+function callRainode (payload) {
+  return new Promise(function (resolve, reject) {
+    request.post({
+      url: 'http://' + config.rainode.host + ':' + config.rainode.port,
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(payload),
+      timeout: 60000,
+      callback: function (err, response, body) {
+        if (err) {
+          winston.debug('ERROR', err)
+          reject(err)
+        } else {
+          var answer = JSON.parse(body)
+          winston.debug('ANSWER: ', JSON.stringify(answer))
+          resolve(answer)
+        }
+      }
+    })
+  })
+}
+
+// Want to notify before shutting down
+function handleAppExit (options, err) {
+  if (err) {
+    winston.error(err.stack)
+  }
+  if (options.cleanup) {
+    winston.info('Cleaning up...')
+    if (mqttClient) {
+      mqttClient.end(true)
+    }
+  }
+  if (options.exit) {
+    winston.info('Calling exit...')
+    process.exit()
+  }
+}
+
+function configureSignals () {
+  // Handle the different ways an application can shutdown
+  process.on('exit', handleAppExit.bind(null, {
+    cleanup: true
+  }))
+  process.on('SIGINT', handleAppExit.bind(null, {
+    exit: true
+  }))
+  process.on('uncaughtException', handleAppExit.bind(null, {
+    exit: true
+  }))
+}
+
+// Let's start doing something
+configure()
+configureSignals()
+connectPostgres()
+
+if (args['--initialize']) {
+  winston.debug('Initializing database ...')
+  initializeDb().then(
+    () => {
+      winston.debug('Initialization done.')
+      process.exit(0)
+    },
+    err => {
+      winston.debug('Initialization failed: ' + err)
+      process.exit(0)
+    }
+  )
+} else {
+  connectRedis()
+  var acc = args['<account>']
+  if (acc) {
+    getWalletForAccount(acc, function (err, obj) {
+      if (err) throw err
+      winston.debug('IsOject: ' + isObject(obj))
+      winston.debug('Obj: ' + JSON.stringify(obj))
+    })
+  }
+  // connectMQTT()
+}
