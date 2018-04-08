@@ -9,14 +9,14 @@ const fs = require('fs')
 const express = require('express')
 const bodyParser = require('body-parser')
 const mqtt = require('mqtt')
-const mqttRegex = require('mqtt-regex')  // Used to parse out parameters from wildcard MQTT topics
+const mqttRegex = require('mqtt-regex') // Used to parse out parameters from wildcard MQTT topics
 const request = require('request')
-const extend = require('extend')       // To merge objects
-const winston = require('winston')     // Solid logging lib
-const redis = require('redis')         // For maintaining session state
-const { Pool } = require('pg')         // For proper database stuff
-const neodoc = require('neodoc')       // For nice command line opts
-const {promisify} = require('util')    // Promises for redisClient
+const extend = require('extend') // To merge objects
+const winston = require('winston') // Solid logging lib
+const redis = require('redis') // For maintaining session state
+const { Pool } = require('pg') // For proper database stuff
+const neodoc = require('neodoc') // For nice command line opts
+const {promisify} = require('util') // Promises for redisClient
 
 // Parse out command line
 const args = neodoc.run(`
@@ -87,7 +87,8 @@ var asyncGet
 var restServer = null
 
 // Patterns for topics
-var walletMqttRegex = mqttRegex('wallet/+id/accounts').exec
+var walletMqttRegex = mqttRegex('wallet/+id/accounts').exec // old one
+var walletRegisterMqttRegex = mqttRegex('wallet/+id/register').exec // new one, protocol v1
 var broadcastMqttRegex = mqttRegex('broadcast/+account').exec
 
 // Flag to indicate we have already subscribed to topics
@@ -157,9 +158,6 @@ function connectRedis () {
   redisClient = redis.createClient(config.redis.port, config.redis.host, {no_ready_check: true})
   asyncSet = promisify(redisClient.set).bind(redisClient)
   asyncGet = promisify(redisClient.get).bind(redisClient)
-  /*redisClient.auth('password', function (err) {
-    if (err) throw err
-  })*/
   redisClient.on('connect', function () {
     winston.info('Connected to Redis')
   })
@@ -183,7 +181,11 @@ function connectMQTT () {
     if (params) {
       return handleWalletAccounts(params.id, message)
     }
-    var params = broadcastMqttRegex(topic)
+    params = walletRegisterMqttRegex(topic)
+    if (params) {
+      return handleWalletRegister(params.id, message)
+    }
+    params = broadcastMqttRegex(topic)
     if (params) {
       return handleBroadcastBlock(params.account, message)
     }
@@ -208,12 +210,28 @@ function subscribe () {
   }
 }
 
+// Old style registering only accounts
 function handleWalletAccounts (walletId, message) {
   var accounts = JSON.parse(message)
   setWalletForAccounts(accounts, walletId).then((res) => {
     winston.debug('Set wallet ' + walletId + ' for accounts ' + message)
   }, (err) => {
     winston.error('Error setting wallet for accounts: ' + err)
+  })
+}
+
+// Protocol v1 style registering
+function handleWalletRegister (walletId, message) {
+  var meta = JSON.parse(message)
+  // Pick out accounts and remove them from meta
+  var accounts = meta.accounts
+  delete meta.accounts
+  // Add wallet id to meta
+  meta.wallet = walletId
+  setWalletForAccounts(accounts, JSON.stringify(meta)).then((res) => {
+    winston.debug('Set meta for ' + walletId + ', accounts ' + accounts)
+  }, (err) => {
+    winston.error('Error setting meta for accounts: ' + err)
   })
 }
 
@@ -253,8 +271,6 @@ function startRESTServer () {
         return res.json(canoeServerStatus(spec))
       case 'quota_full':
         return res.json(quotaFull(spec))
-      case 'update_server_map':
-        return res.json(updateServerMap(spec))
       case 'process':
         return processBlock(spec).then((r) => { res.json(r) })
       case 'available_supply':
@@ -278,11 +294,6 @@ function startRESTServer () {
 
   // The rai_node callback entry point
   restServer.post('/callback', function (req, res) {
-    // winston.debug('POST URL ' + req.url)
-    // winston.debug('HEADERS ' + JSON.stringify(req.headers))
-    // winston.debug('QUERY ' + JSON.stringify(req.query))
-    // winston.debug('POSTBODY ' + JSON.stringify(req.body))
-    // winston.debug('IP', req.connection.remoteAddress)
     handleRaiCallback(req.body)
     // We can return immediately
     res.json({})
@@ -294,12 +305,6 @@ function startRESTServer () {
 
 function quotaFull (spec) {
   return {full: false}
-}
-
-function updateServerMap (spec) {
-  // for acc in accounts:
-  //  redis.setk("xrb:" & acc.getStr, walletId)
-  // return %*{"status": "ok"}
 }
 
 function canoeServerStatus (spec) {
@@ -427,15 +432,28 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
   }
 }
 
+// function isObject (o) {
+//  return o !== null && typeof o === 'object'
+// }
+
 function getWalletForAccount (account, cb) {
   winston.debug('Get wallet for account: ' + account)
-  redisClient.get('accounts:' + account, cb)
+  redisClient.get('accounts:' + account, function (err, v) {
+    if (err) throw err
+    // Nasty hack, but we know it's either a string (old walletId) or a JSON object
+    if (v[0] === '{') {
+      var meta = JSON.parse(v)
+      cb(meta.wallet, meta)
+    } else {
+      cb(v.toString(), null)
+    }
+  })
 }
 
-function setWalletForAccounts (accounts, walletId) {
+function setWalletForAccounts (accounts, value) {
   var promises = []
   for (let acc of accounts) {
-    promises.push(asyncSet('accounts:' + acc, walletId))
+    promises.push(asyncSet('accounts:' + acc, value))
   }
   return Promise.all(promises)
 }
@@ -456,45 +474,54 @@ function handleRaiCallback (blk) {
     }
     // Switch on block type
     switch (blkType) {
-      case 'open':
-        getWalletForAccount(account, function (err, wallet) {
-          if (err) throw err
+      case 'state':
+        getWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
-            publishBlock('wallet/' + wallet.toString() + '/block/open', blk)
+            // We only serve state blocks to Canoe protocol v1+
+            // and we know that they register a meta object
+            if (meta) {
+              publishBlock('wallet/' + wallet + '/block/state', blk)
+            } else {
+              winston.warn('State block received for Canoe not capable of handling it')
+            }
+          }
+        })
+        return
+      case 'open':
+        getWalletForAccount(account, function (wallet, meta) {
+          if (wallet) {
+            publishBlock('wallet/' + wallet + '/block/open', blk)
           }
         })
         return
       case 'send':
         // Is this a send to one of our accounts?
-        getWalletForAccount(blk2.destination, function (err, wallet) {
-          if (err) throw err
+        getWalletForAccount(blk2.destination, function (wallet, meta) {
           if (wallet) {
             winston.debug('Send to: ' + blk2.destination + ' wallet: ' + wallet.toString())
-            publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
-          }
-        })
-        // Is this a send from one of our accounts? (can be both)
-        getWalletForAccount(account, function (err, wallet) {
-          if (err) throw err
-          if (wallet) {
-            winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
-            publishBlock('wallet/' + wallet.toString() + '/block/send', blk)
+            publishBlock('wallet/' + wallet + '/block/send', blk)
+          } else {
+            // Is this a send from one of our accounts?
+            getWalletForAccount(account, function (wallet, meta) {
+              if (wallet) {
+                winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
+                publishBlock('wallet/' + wallet + '/block/send', blk)
+              }
+            })
           }
         })
         return
       case 'receive':
-        getWalletForAccount(account, function (err, wallet) {
-          if (err) throw err
+        getWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
-            publishBlock('wallet/' + wallet.toString() + '/block/receive', blk)
+            publishBlock('wallet/' + wallet + '/block/receive', blk)
           }
         })
         return
       case 'change':
-        getWalletForAccount(account, function (err, wallet) {
-          if (err) throw err
+        getWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
-            publishBlock('wallet/' + wallet.toString() + '/block/change', blk)
+            publishBlock('wallet/' + wallet + '/block/change', blk)
           }
         })
         return
