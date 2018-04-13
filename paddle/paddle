@@ -18,6 +18,8 @@ const {promisify} = require('util') // Promises for redisClient
 const args = neodoc.run(`
 Usage:
   paddle [--config=<path>]
+  paddle pub <file.json>
+  paddle set <account>
   paddle get <account>
   paddle -h | --help | --version
 `, { optionsFirst: true, smartOptions: true })
@@ -64,6 +66,12 @@ var config = {
       opts: {
         qos: 2,
         retain: false
+      }
+    },
+    config: {
+      opts: {
+        qos: 2,
+        retain: true
       }
     }
   }
@@ -185,6 +193,11 @@ function connectMQTT () {
     }
     winston.error('No handler for topic %s', topic)
   })
+}
+
+function publishConfig (topic, payload) {
+  winston.debug('Publish: ' + topic + ' payload: ' + JSON.stringify(payload))
+  mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.config.opts)
 }
 
 function publishBlock (topic, payload) {
@@ -316,6 +329,14 @@ function isObject (o) {
   return o !== null && typeof o === 'object'
 }
 
+function setWalletForAccounts (accounts, value) {
+  var promises = []
+  for (let acc of accounts) {
+    promises.push(asyncSet('accounts:' + acc, value))
+  }
+  return Promise.all(promises)
+}
+
 function getWalletForAccount (account, cb) {
   winston.debug('Get wallet for account: ' + account)
   redisClient.get('accounts:' + account, cb)
@@ -373,6 +394,22 @@ function configureSignals () {
   }))
 }
 
+function publishConfig (fn, cb) {
+  if (!fs.existsSync(fn)) {
+    winston.error('No config file found named ' + fn)
+    process.exit(0)
+  }
+  var contents = fs.readFileSync(fn).toString()
+  var json = JSON.parse(contents)
+  var topic = json.topic
+  var config = json.config
+  if (!topic || !config) {
+    return cb(new Error('Malformed config JSON, needs topic and config: ' + fn))
+  }
+  winston.info('Publishing: ' + fn + ' on topic: ' + topic)
+  mqttClient.publish(topic, JSON.stringify(config), config.mqtt.config.opts, cb)
+}
+
 // Let's start doing something
 configure()
 configureSignals()
@@ -392,13 +429,31 @@ if (args['--initialize']) {
   )
 } else {
   connectRedis()
-  var acc = args['<account>']
-  if (acc) {
-    getWalletForAccount(acc, function (err, obj) {
-      if (err) throw err
-      winston.debug('IsOject: ' + isObject(obj))
-      winston.debug('Obj: ' + JSON.stringify(obj))
+  if (args['pub']) {
+    var fn = args['<file.json>']
+    publishConfig(fn, function (err) {
+      if (err) {
+        winston.error(err)
+      }
+      process.exit(0)
     })
+  } else {
+    var acc = args['<account>']
+    if (args['set'] && acc) {
+      setWalletForAccounts([acc], JSON.stringify({wallet: 'xyz'})).then((res) => {
+        winston.debug('Set wallet xyz for accounts ' + [acc])
+      }, (err) => {
+        winston.error('Error setting wallet for accounts: ' + err)
+      })
+    }
+    if (args['get'] && acc) {
+      getWalletForAccount(acc, function (err, value) {
+        if (err) throw err
+        var o = JSON.parse(value)
+        winston.debug('IsOject: ' + isObject(o))
+        winston.debug('Obj: ' + JSON.stringify(o))
+      })
+    }  
   }
   // connectMQTT()
 }
