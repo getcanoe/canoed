@@ -440,12 +440,13 @@ function getWalletForAccount (account, cb) {
   winston.debug('Get wallet for account: ' + account)
   redisClient.get('accounts:' + account, function (err, v) {
     if (err) throw err
-    // Nasty hack, but we know it's either a string (old walletId) or a JSON object
-    if (v[0] === '{') {
+    // Nasty hack, but we know it's either null, a hex string (old walletId) or a JSON object
+    if (v && v[0] === '{') {
       var meta = JSON.parse(v)
       cb(meta.wallet, meta)
     } else {
-      cb(v.toString(), null)
+      // v is null or an old walletId (hex)
+      cb(v, null)
     }
   })
 }
