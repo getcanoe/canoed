@@ -203,6 +203,7 @@ function subscribe () {
   if (!subscribed) {
     mqttClient.subscribe('canoecontrol')
     mqttClient.subscribe('wallet/+/accounts')
+    mqttClient.subscribe('wallet/+/register')
     mqttClient.subscribe('broadcast/+') // account number
     winston.debug('Subscribed to selected topics')
     // /+/ for wildcards
