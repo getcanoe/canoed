@@ -68,6 +68,12 @@ var config = {
         qos: 2,
         retain: false
       }
+    },
+    config: {
+      opts: {
+        qos: 2,
+        retain: true
+      }
     }
   }
 }
@@ -191,6 +197,11 @@ function connectMQTT () {
     }
     winston.error('No handler for topic %s', topic)
   })
+}
+
+function publishConfig (topic, payload) {
+  winston.debug('Publish: ' + topic + ' payload: ' + JSON.stringify(payload))
+  mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.config.opts)
 }
 
 function publishBlock (topic, payload) {
@@ -459,8 +470,19 @@ function setWalletForAccounts (accounts, value) {
   return Promise.all(promises)
 }
 
+function handleCanary (hash) {
+  switch (hash) {
+    case 'B6DC4D64801BEC7D81DAA086A5733D251E8CBA0E9226FD6173D97C0569EC2998':
+      // Turn on state block generation
+      publishConfig('config/merge', {stateblocks: {enable: true}})
+  }
+}
+
 function handleRaiCallback (blk) {
   var blk2 = JSON.parse(blk.block)
+
+  // Check for canaries
+  handleCanary(blk.hash)
 
   // Now we can pick out type of block
   var blkType = blk2.type
