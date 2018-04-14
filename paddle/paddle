@@ -5,8 +5,8 @@
 
 const fs = require('fs')
 const mqtt = require('mqtt')
-const mqttRegex = require('mqtt-regex') // Used to parse out parameters from wildcard MQTT topics
-const request = require('request')
+// const mqttRegex = require('mqtt-regex') // Used to parse out parameters from wildcard MQTT topics
+// const request = require('request')
 const extend = require('extend') // To merge objects
 const winston = require('winston') // Solid logging lib
 const redis = require('redis') // For maintaining session state
@@ -68,7 +68,7 @@ var config = {
         retain: false
       }
     },
-    config: {
+    sharedconfig: {
       opts: {
         qos: 2,
         retain: true
@@ -76,6 +76,9 @@ var config = {
     }
   }
 }
+
+// Published as retained message and shared by all wallets connecting to canoed
+var sharedConfig
 
 // MQTT Client
 var mqttClient = null
@@ -87,11 +90,6 @@ var pool = null
 var redisClient = null
 var asyncSet
 var asyncGet
-
-// Patterns for topics
-var walletMqttRegex = mqttRegex('wallet/+id/accounts').exec // old one
-var walletRegisterMqttRegex = mqttRegex('wallet/+id/register').exec // new one, protocol v1
-var broadcastMqttRegex = mqttRegex('broadcast/+account').exec
 
 // Flag to indicate we have already subscribed to topics
 var subscribed = false
@@ -166,125 +164,42 @@ function connectRedis () {
 }
 
 // Connect to MQTT
-function connectMQTT () {
+function connectMQTT (cb) {
   mqttClient = mqtt.connect(config.mqtt.url, config.mqtt.options)
   mqttClient.on('connect', function () {
     winston.info('Connected to MQTT server')
     subscribe()
+    cb()
   })
 
   // Where all subscribed messages come in
   mqttClient.on('message', function (topic, message) {
     switch (topic) {
-      case 'canoecontrol':
-        return handleControl(message)
-    }
-    var params = walletMqttRegex(topic)
-    if (params) {
-      return handleWalletAccounts(params.id, message)
-    }
-    params = walletRegisterMqttRegex(topic)
-    if (params) {
-      return handleWalletRegister(params.id, message)
-    }
-    params = broadcastMqttRegex(topic)
-    if (params) {
-      return handleBroadcastBlock(params.account, message)
+      case 'sharedconfig':
+        return handleSharedConfig(message)
     }
     winston.error('No handler for topic %s', topic)
   })
 }
 
-function publishConfig (topic, payload) {
-  winston.debug('Publish: ' + topic + ' payload: ' + JSON.stringify(payload))
-  mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.config.opts)
-}
-
-function publishBlock (topic, payload) {
-  winston.debug('Publish: ' + topic + ' block: ' + JSON.stringify(payload))
-  mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.block.opts)
+function publishSharedConfig (payload, cb) {
+  winston.debug('Publish shared config: ' + JSON.stringify(payload))
+  mqttClient.publish('sharedconfig', JSON.stringify(payload), config.mqtt.sharedconfig.opts, cb)
 }
 
 // Subscribe to control
 function subscribe () {
   if (!subscribed) {
-    mqttClient.subscribe('canoecontrol')
-    mqttClient.subscribe('wallet/+/accounts')
-    mqttClient.subscribe('broadcast/+') // account number
+    mqttClient.subscribe('sharedconfig')
     winston.debug('Subscribed to selected topics')
     // /+/ for wildcards
     subscribed = true
   }
 }
 
-// Old style registering only accounts
-function handleWalletAccounts (walletId, message) {
-  var accounts = JSON.parse(message)
-  setWalletForAccounts(accounts, walletId).then((res) => {
-    winston.debug('Set wallet ' + walletId + ' for accounts ' + message)
-  }, (err) => {
-    winston.error('Error setting wallet for accounts: ' + err)
-  })
-}
-
-// Protocol v1 style registering
-function handleWalletRegister (walletId, message) {
-  var register = JSON.parse(message)
-  // Pick out accounts
-  var accounts = register.accounts
-  delete register.accounts
-  // Add wallet id to register
-  register.wallet = walletId
-  setWalletForAccounts(accounts, register).then((res) => {
-    winston.debug('Set register for ' + walletId + ' for accounts ' + message)
-  }, (err) => {
-    winston.error('Error setting register for accounts: ' + err)
-  })
-}
-
-function handleBroadcastBlock (account, message) {
-  winston.debug('Broadcast for account ' + account + ' block ' + message)
-}
-
-function handleControl (message) {
-  var control = JSON.parse(message)
-  winston.debug('PARSED CONTROL: ', control)
-  // TODO handle control commands
-}
-
-async function blocksInfo (spec) {
-  return callRainode(spec).then((obj) => {
-    // Now we want to attach proper timestamps to retreived blocks
-    var ps = []
-    var blocks = obj.blocks
-    // Using this style to get proper closure
-    Object.keys(blocks).forEach(function (hash) {
-      ps.push(getTimestamp(hash).then((ts) => {
-        if (ts) {
-          blocks[hash].timestamp = ts
-        }
-      }))
-    })
-    return Promise.all(ps).then(() => { return obj })
-  })
-}
-// Get the timestamp for given block hash, in milliseconds
-async function getTimestamp (hash) {
-  var values = [hash]
-  var sql = `SELECT (timestamp) FROM block_timestamp WHERE hash = $1;`
-  const client = await pool.connect()
-  try {
-    const res = await client.query(sql, values)
-    if (res.rowCount === 1) {
-      return new Date(res.rows[0].timestamp).getTime()
-    } else {
-      return null
-    }
-  } catch (e) {
-    winston.error('Error getting block: ' + e)
-  } finally {
-    client.release()
-  }
+function handleSharedConfig (message) {
+  sharedConfig = JSON.parse(message)
+  winston.debug('Saved new sharedconfig: ', sharedConfig)
 }
 
 // Create an account given a walletId, token and a tokenPass
@@ -340,28 +255,6 @@ function setWalletForAccounts (accounts, value) {
 function getWalletForAccount (account, cb) {
   winston.debug('Get wallet for account: ' + account)
   redisClient.get('accounts:' + account, cb)
-}
-
-// Make POST call to rai_node
-function callRainode (payload) {
-  return new Promise(function (resolve, reject) {
-    request.post({
-      url: 'http://' + config.rainode.host + ':' + config.rainode.port,
-      headers: {'content-type': 'application/json'},
-      body: JSON.stringify(payload),
-      timeout: 60000,
-      callback: function (err, response, body) {
-        if (err) {
-          winston.debug('ERROR', err)
-          reject(err)
-        } else {
-          var answer = JSON.parse(body)
-          winston.debug('ANSWER: ', JSON.stringify(answer))
-          resolve(answer)
-        }
-      }
-    })
-  })
 }
 
 // Want to notify before shutting down
@@ -429,13 +322,31 @@ if (args['--initialize']) {
   )
 } else {
   connectRedis()
-  if (args['pub']) {
-    var fn = args['<file.json>']
-    publishConfig(fn, function (err) {
-      if (err) {
-        winston.error(err)
+  if (args['pubshared']) {
+    connectMQTT(function () {
+      var fn = args['<file.json>']
+      if (!fs.existsSync(fn)) {
+        winston.error('No config file found named ' + fn)
+        process.exit(0)
       }
-      process.exit(0)
+      var contents = fs.readFileSync(fn).toString()
+      var json = JSON.parse(contents)
+      publishSharedConfig(json, function (err) {
+        if (err) {
+          winston.error(err)
+        }
+        process.exit(0)
+      })
+    })
+  } else if (args['pub']) {
+    connectMQTT(function () {
+      var fn = args['<file.json>']
+      publishConfig(fn, function (err) {
+        if (err) {
+          winston.error(err)
+        }
+        process.exit(0)
+      })
     })
   } else {
     var acc = args['<account>']
@@ -453,7 +364,7 @@ if (args['--initialize']) {
         winston.debug('IsOject: ' + isObject(o))
         winston.debug('Obj: ' + JSON.stringify(o))
       })
-    }  
+    }
   }
   // connectMQTT()
 }
