@@ -69,7 +69,7 @@ var config = {
         retain: false
       }
     },
-    config: {
+    sharedconfig: {
       opts: {
         qos: 2,
         retain: true
@@ -77,6 +77,9 @@ var config = {
     }
   }
 }
+
+// Published as retained message and shared by all wallets connecting to canoed
+var sharedConfig
 
 // MQTT Client
 var mqttClient = null
@@ -180,6 +183,8 @@ function connectMQTT () {
   // Where all subscribed messages come in
   mqttClient.on('message', function (topic, message) {
     switch (topic) {
+      case 'sharedconfig':
+        return handleSharedConfig(message)
       case 'canoecontrol':
         return handleControl(message)
     }
@@ -199,9 +204,9 @@ function connectMQTT () {
   })
 }
 
-function publishConfig (topic, payload) {
+function publishSharedConfig (topic, payload) {
   winston.debug('Publish: ' + topic + ' payload: ' + JSON.stringify(payload))
-  mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.config.opts)
+  mqttClient.publish(topic, JSON.stringify(payload), config.mqtt.sharedconfig.opts)
 }
 
 function publishBlock (topic, payload) {
@@ -212,6 +217,7 @@ function publishBlock (topic, payload) {
 // Subscribe to control
 function subscribe () {
   if (!subscribed) {
+    mqttClient.subscribe('sharedconfig')
     mqttClient.subscribe('canoecontrol')
     mqttClient.subscribe('wallet/+/accounts')
     mqttClient.subscribe('wallet/+/register')
@@ -249,6 +255,11 @@ function handleWalletRegister (walletId, message) {
 
 function handleBroadcastBlock (account, message) {
   winston.debug('Broadcast for account ' + account + ' block ' + message)
+}
+
+function handleSharedConfig (message) {
+  sharedConfig = JSON.parse(message)
+  winston.debug('Saved new sharedconfig: ', sharedConfig)
 }
 
 function handleControl (message) {
@@ -475,7 +486,8 @@ function handleCanary (hash) {
   switch (hash) {
     case 'B6DC4D64801BEC7D81DAA086A5733D251E8CBA0E9226FD6173D97C0569EC2998':
       // Turn on state block generation
-      publishConfig('config/merge', {stateblocks: {enable: true}})
+      sharedConfig.stateblocks.enable = true
+      publishSharedConfig('sharedconfig', sharedConfig)
   }
 }
 
