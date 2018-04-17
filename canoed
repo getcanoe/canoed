@@ -259,7 +259,7 @@ function handleBroadcastBlock (account, message) {
 
 function handleSharedConfig (message) {
   sharedConfig = JSON.parse(message)
-  winston.debug('Saved new sharedconfig: ', sharedConfig)
+  winston.debug('Saved new sharedconfig: ' + JSON.stringify(sharedConfig))
 }
 
 function handleControl (message) {

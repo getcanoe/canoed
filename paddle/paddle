@@ -18,6 +18,8 @@ const {promisify} = require('util') // Promises for redisClient
 const args = neodoc.run(`
 Usage:
   paddle [--config=<path>]
+  paddle show
+  paddle pubshared <file.json>
   paddle pub <file.json>
   paddle set <account>
   paddle get <account>
@@ -199,7 +201,7 @@ function subscribe () {
 
 function handleSharedConfig (message) {
   sharedConfig = JSON.parse(message)
-  winston.debug('Saved new sharedconfig: ', sharedConfig)
+  winston.debug('Saved new sharedconfig: ' + JSON.stringify(sharedConfig))
 }
 
 // Create an account given a walletId, token and a tokenPass
@@ -331,6 +333,7 @@ if (args['--initialize']) {
       }
       var contents = fs.readFileSync(fn).toString()
       var json = JSON.parse(contents)
+      winston.debug('Sending: ' + JSON.stringify(json))
       publishSharedConfig(json, function (err) {
         if (err) {
           winston.error(err)
@@ -366,5 +369,9 @@ if (args['--initialize']) {
       })
     }
   }
-  // connectMQTT()
+  if (args['show']) {
+    connectMQTT(function () {
+      winston.debug('Done')
+    })
+  }
 }
