@@ -185,7 +185,7 @@ function connectMQTT () {
     switch (topic) {
       case 'sharedconfig':
         return handleSharedConfig(message)
-      case 'canoecontrol':
+      case 'control/canoed':
         return handleControl(message)
     }
     var params = walletMqttRegex(topic)
@@ -218,7 +218,7 @@ function publishBlock (topic, payload) {
 function subscribe () {
   if (!subscribed) {
     mqttClient.subscribe('sharedconfig')
-    mqttClient.subscribe('canoecontrol')
+    mqttClient.subscribe('control/canoed')
     mqttClient.subscribe('wallet/+/accounts')
     mqttClient.subscribe('wallet/+/register')
     mqttClient.subscribe('broadcast/+') // account number
@@ -280,11 +280,6 @@ function startRESTServer () {
   // The RPC functions we offer Canoe
   restServer.post('/rpc', function (req, res) {
     winston.debug('GET URL', req.url)
-    // winston.debug('HEADERS', req.headers)
-    // winston.debug('QUERY', req.query)
-    // winston.debug('BODY', req.body)
-    // winston.debug('CONTENT', req.content)
-
     var spec = req.body
     var action = req.body.action
     switch (action) {
@@ -485,9 +480,11 @@ function setWalletForAccounts (accounts, value) {
 function handleCanary (hash) {
   switch (hash) {
     case 'B6DC4D64801BEC7D81DAA086A5733D251E8CBA0E9226FD6173D97C0569EC2998':
-      // Turn on state block generation
-      sharedConfig.stateblocks.enable = true
-      publishSharedConfig('sharedconfig', sharedConfig)
+      // Turn on state block generation if not already on
+      if (!sharedConfig.stateblocks.enable) {
+        sharedConfig.stateblocks.enable = true
+        publishSharedConfig('sharedconfig', sharedConfig)
+      }
   }
 }
 
@@ -501,7 +498,7 @@ function handleRaiCallback (blk) {
   var blkType = blk2.type
   var account = blk.account
 
-  winston.debug('Acc: ' + account + ' Block: ' + blkType + ' amount: ' + blk.amount)
+  winston.debug('Acc: ' + account + ' block: ' + blkType + ' hash: ' + blk.hash)
 
   // Create timestamp for this block and add it to the block
   createTimestamp(blk.hash).then((ts) => {
