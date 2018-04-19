@@ -508,6 +508,7 @@ function handleRaiCallback (blk) {
     // Switch on block type
     switch (blkType) {
       case 'state':
+        winston.debug('Is send: ' + (blk2.is_send === 'true'))
         getWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
             // We only serve state blocks to Canoe protocol v1+
@@ -521,8 +522,10 @@ function handleRaiCallback (blk) {
         })
         // If a send we also need to publish to receiving wallet, if we have it
         if (blk2.is_send === 'true') {
+          winston.debug('Link as account: ' + (blk2.link_as_account))
           getWalletForAccount(blk2.link_as_account, function (wallet, meta) {
             if (wallet) {
+              winston.debug('Found wallet:' + wallet)
               // We only serve state blocks to Canoe protocol v1+
               // and we know that they register a meta object
               if (meta) {
