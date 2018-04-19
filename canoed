@@ -519,6 +519,20 @@ function handleRaiCallback (blk) {
             }
           }
         })
+        // If a send we also need to publish to receiving wallet, if we have it
+        if (blk2.is_send === 'true') {
+          getWalletForAccount(blk2.link_as_account, function (wallet, meta) {
+            if (wallet) {
+              // We only serve state blocks to Canoe protocol v1+
+              // and we know that they register a meta object
+              if (meta) {
+                publishBlock('wallet/' + wallet + '/block/state', blk)
+              } else {
+                winston.warn('State block received for Canoe not capable of handling it')
+              }
+            }
+          })
+        }
         return
       case 'open':
         getWalletForAccount(account, function (wallet, meta) {
@@ -533,14 +547,13 @@ function handleRaiCallback (blk) {
           if (wallet) {
             winston.debug('Send to: ' + blk2.destination + ' wallet: ' + wallet.toString())
             publishBlock('wallet/' + wallet + '/block/send', blk)
-          } else {
-            // Is this a send from one of our accounts?
-            getWalletForAccount(account, function (wallet, meta) {
-              if (wallet) {
-                winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
-                publishBlock('wallet/' + wallet + '/block/send', blk)
-              }
-            })
+          }
+        })
+        // Is this a send from one of our accounts?
+        getWalletForAccount(account, function (wallet, meta) {
+          if (wallet) {
+            winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
+            publishBlock('wallet/' + wallet + '/block/send', blk)
           }
         })
         return
