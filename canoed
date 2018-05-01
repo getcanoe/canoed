@@ -89,8 +89,10 @@ var pool = null
 
 // Redis Client
 var redisClient = null
-var asyncSet
-var asyncGet
+// var asyncSet
+// var asyncGet
+var asyncSetAdd
+var asyncSetMembers
 
 // An Express server to handle REST calls, either from Canoe or from rai_node callback
 var restServer = null
@@ -165,8 +167,10 @@ async function initializeDb () {
 function connectRedis () {
   winston.info('Connecting to Redis ...')
   redisClient = redis.createClient(config.redis.port, config.redis.host, {no_ready_check: true})
-  asyncSet = promisify(redisClient.set).bind(redisClient)
-  asyncGet = promisify(redisClient.get).bind(redisClient)
+  // asyncSet = promisify(redisClient.set).bind(redisClient)
+  // asyncGet = promisify(redisClient.get).bind(redisClient)
+  asyncSetAdd = promisify(redisClient.sadd).bind(redisClient)
+  asyncSetMembers = promisify(redisClient.smembers).bind(redisClient)
   redisClient.on('connect', function () {
     winston.info('Connected to Redis')
   })
@@ -304,6 +308,7 @@ function startRESTServer () {
       case 'blocks_info':
         return blocksInfo(spec).then((r) => { res.json(r) })
       case 'work_generate':
+        winston.log()
         return workGenerate(spec).then((r) => { res.json(r) })
       default:
         return res.json({error: 'unknown action'})
@@ -454,17 +459,21 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
 //  return o !== null && typeof o === 'object'
 // }
 
-function getWalletForAccount (account, cb) {
+function eachWalletForAccount (account, cb) {
   winston.debug('Get wallet for account: ' + account)
-  redisClient.get('accounts:' + account, function (err, v) {
+  asyncSetMembers('accounts:' + account, function (err, values) {
     if (err) throw err
-    // Nasty hack, but we know it's either null, a hex string (old walletId) or a JSON object
-    if (v && v[0] === '{') {
-      var meta = JSON.parse(v)
-      cb(meta.wallet, meta)
-    } else {
-      // v is null or an old walletId (hex)
-      cb(v, null)
+    if (values) {
+      for (let v of values) {
+        // Nasty hack, but we know it's a hex string (old walletId) or a JSON object
+        if (v[0] === '{') {
+          var meta = JSON.parse(v)
+          cb(meta.wallet, meta)
+        } else {
+          // v is old walletId (hex), then meta is null
+          cb(v, null)
+        }
+      }
     }
   })
 }
@@ -472,7 +481,8 @@ function getWalletForAccount (account, cb) {
 function setWalletForAccounts (accounts, value) {
   var promises = []
   for (let acc of accounts) {
-    promises.push(asyncSet('accounts:' + acc, value))
+    promises.push(asyncSetAdd('accounts:' + acc, value))
+    // promises.push(asyncSet('accounts:' + acc, value))
   }
   return Promise.all(promises)
 }
@@ -505,40 +515,46 @@ function handleRaiCallback (blk) {
     if (ts) {
       blk.timestamp = ts
     }
+    var publishedTo = new Set()
     // Switch on block type
     switch (blkType) {
       case 'state':
         winston.debug('Is send: ' + (blk2.is_send === 'true'))
-        getWalletForAccount(account, function (wallet, meta) {
+        eachWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
             // We only serve state blocks to Canoe protocol v1+
             // and we know that they register a meta object
             if (meta) {
-              publishBlock('wallet/' + wallet + '/block/state', blk)
+              if (!publishedTo.has(publishedTo)) {
+                publishedTo.add(wallet)
+                publishBlock('wallet/' + wallet + '/block/state', blk)
+              }
             } else {
               winston.warn('State block received for Canoe not capable of handling it')
             }
           }
-        })
-        // If a send we also need to publish to receiving wallet, if we have it
-        if (blk2.is_send === 'true') {
-          winston.debug('Link as account: ' + (blk2.link_as_account))
-          getWalletForAccount(blk2.link_as_account, function (wallet, meta) {
-            if (wallet) {
-              winston.debug('Found wallet:' + wallet)
-              // We only serve state blocks to Canoe protocol v1+
-              // and we know that they register a meta object
-              if (meta) {
-                publishBlock('wallet/' + wallet + '/block/state', blk)
-              } else {
-                winston.warn('State block received for Canoe not capable of handling it')
+          // If a send we also need to publish to receiving wallet, if we have it
+          if (blk2.is_send === 'true') {
+            winston.debug('Link as account: ' + (blk2.link_as_account))
+            eachWalletForAccount(blk2.link_as_account, function (wallet, meta) {
+              if (wallet) {
+                // We only serve state blocks to Canoe protocol v1+
+                // and we know that they register a meta object
+                if (meta) {
+                  if (!publishedTo.has(publishedTo)) {
+                    publishedTo.add(wallet)
+                    publishBlock('wallet/' + wallet + '/block/state', blk)
+                  }
+                } else {
+                  winston.warn('State block received for Canoe not capable of handling it')
+                }
               }
-            }
-          })
-        }
+            })
+          }
+        })
         return
       case 'open':
-        getWalletForAccount(account, function (wallet, meta) {
+        eachWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
             publishBlock('wallet/' + wallet + '/block/open', blk)
           }
@@ -546,29 +562,35 @@ function handleRaiCallback (blk) {
         return
       case 'send':
         // Is this a send to one of our accounts?
-        getWalletForAccount(blk2.destination, function (wallet, meta) {
+        eachWalletForAccount(blk2.destination, function (wallet, meta) {
           if (wallet) {
             winston.debug('Send to: ' + blk2.destination + ' wallet: ' + wallet.toString())
-            publishBlock('wallet/' + wallet + '/block/send', blk)
+            if (!publishedTo.has(publishedTo)) {
+              publishedTo.add(wallet)
+              publishBlock('wallet/' + wallet + '/block/send', blk)
+            }
           }
-        })
-        // Is this a send from one of our accounts?
-        getWalletForAccount(account, function (wallet, meta) {
-          if (wallet) {
-            winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
-            publishBlock('wallet/' + wallet + '/block/send', blk)
-          }
+          // Is this a send from one of our accounts?
+          eachWalletForAccount(account, function (wallet, meta) {
+            if (wallet) {
+              winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
+              if (!publishedTo.has(publishedTo)) {
+                publishedTo.add(wallet)
+                publishBlock('wallet/' + wallet + '/block/send', blk)
+              }
+            }
+          })
         })
         return
       case 'receive':
-        getWalletForAccount(account, function (wallet, meta) {
+        eachWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
             publishBlock('wallet/' + wallet + '/block/receive', blk)
           }
         })
         return
       case 'change':
-        getWalletForAccount(account, function (wallet, meta) {
+        eachWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
             publishBlock('wallet/' + wallet + '/block/change', blk)
           }
