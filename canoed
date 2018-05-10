@@ -14,6 +14,7 @@ const request = require('request')
 const extend = require('extend') // To merge objects
 const winston = require('winston') // Solid logging lib
 const redis = require('redis') // For maintaining session state
+const Queue = require('bull')
 const { Pool } = require('pg') // For proper database stuff
 const neodoc = require('neodoc') // For nice command line opts
 const {promisify} = require('util') // Promises for redisClient
@@ -101,6 +102,10 @@ var restServer = null
 var walletMqttRegex = mqttRegex('wallet/+id/accounts').exec // old one
 var walletRegisterMqttRegex = mqttRegex('wallet/+id/register').exec // new one, protocol v1
 var broadcastMqttRegex = mqttRegex('broadcast/+account').exec
+var walletWorkMqttRegex = mqttRegex('wallet/+id/pow').exec // request pow
+
+// Proof of work Queue
+var powQueue = new Queue('work calculator', {redis: {port: config.redis.port, host: config.redis.host}})
 
 // Flag to indicate we have already subscribed to topics
 var subscribed = false
@@ -132,9 +137,9 @@ function connectPostgres () {
 async function initializeDb () {
   var sql = `
   CREATE TABLE IF NOT EXISTS block_timestamp (
-    hash varchar(64) NOT NULL,  
-    timestamp timestamp default current_timestamp,  
-    PRIMARY KEY (hash)  
+    hash varchar(64) NOT NULL,
+    timestamp timestamp default current_timestamp,
+    PRIMARY KEY (hash)
   );
   CREATE TABLE IF NOT EXISTS vmq_auth_acl
   (
@@ -200,6 +205,10 @@ function connectMQTT () {
     if (params) {
       return handleWalletRegister(params.id, message)
     }
+    params = walletWorkMqttRegex(topic)
+    if (params) {
+      return handleWalletWork(params.account, message)
+    }
     params = broadcastMqttRegex(topic)
     if (params) {
       return handleBroadcastBlock(params.account, message)
@@ -207,6 +216,10 @@ function connectMQTT () {
     winston.error('No handler for topic %s', topic)
   })
 }
+
+powQueue.process(function(job, done) {
+  done(null, workObject)
+});
 
 function publishSharedConfig (topic, payload) {
   winston.debug('Publish: ' + topic + ' payload: ' + JSON.stringify(payload))
@@ -225,6 +238,7 @@ function subscribe () {
     mqttClient.subscribe('control/canoed')
     mqttClient.subscribe('wallet/+/accounts')
     mqttClient.subscribe('wallet/+/register')
+    mqttClient.subscribe('wallet/+/pow')
     mqttClient.subscribe('broadcast/+') // account number
     winston.debug('Subscribed to selected topics')
     // /+/ for wildcards
@@ -254,6 +268,17 @@ function handleWalletRegister (walletId, message) {
     winston.debug('Set meta for ' + walletId + ', accounts ' + accounts)
   }, (err) => {
     winston.error('Error setting meta for accounts: ' + err)
+  })
+}
+
+// PoW Requests
+function handleWalletWork (walletId, message) {
+  var payload = JSON.parse(message)
+  var hash = payload.hash
+  createWorkJob(hash, walletId).then((res) => {
+    winston.debug('Created job for ' + walletId + ', with hash ' + hash)
+  }, (err) => {
+    winston.error('Error creating work job: ' + err)
   })
 }
 
@@ -431,9 +456,9 @@ async function createAccount (spec) {
            gen_salt('bf')::text AS salt,
            $4::json AS publish_acl,
            $5::json AS subscribe_acl
-    ) 
+    )
 INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl, subscribe_acl)
-    SELECT 
+    SELECT
         x.mountpoint,
         x.client_id,
         x.username,
@@ -476,6 +501,10 @@ function eachWalletForAccount (account, cb) {
       }
     }
   })
+}
+
+function createWorkJob (hash, walletId) {
+
 }
 
 function setWalletForAccounts (accounts, value) {
