@@ -4,6 +4,7 @@
   "author": "Göran Krampe <goran@evothings.com>",
   "dependencies": {
     "body-parser": "^1.18.2",
+    "bull": "^3.4.1",
     "express": "^4.16.3",
     "fs": "0.0.1-security",
     "mqtt": "^2.17.0",
