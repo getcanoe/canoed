@@ -305,6 +305,26 @@ function startRESTServer () {
         return accountsPending(spec).then((r) => { res.json(r) })
       case 'account_history':
         return accountHistory(spec).then((r) => { res.json(r) })
+      case 'account_get':
+        return accountGet(spec).then((r) => { res.json(r) })
+      case 'account_info':
+        return accountInfo(spec).then((r) => { res.json(r) })
+      case 'account_key':
+        return accountKey(spec).then((r) => { res.json(r) })
+      case 'validate_account_number':
+        return validateAccountNumber(spec).then((r) => { res.json(r) })
+      case 'krai_from_raw':
+        return doConversion(spec).then((r) => { res.json(r) })
+      case 'krai_to_raw':
+        return doConversion(spec).then((r) => { res.json(r) })
+      case 'mrai_from_raw':
+        return doConversion(spec).then((r) => { res.json(r) })
+      case 'mrai_to_raw':
+        return doConversion(spec).then((r) => { res.json(r) })
+      case 'rai_from_raw':
+        return doConversion(spec).then((r) => { res.json(r) })
+      case 'rai_to_raw':
+        return doConversion(spec).then((r) => { res.json(r) })
       case 'blocks_info':
         return blocksInfo(spec).then((r) => { res.json(r) })
       case 'work_generate':
@@ -355,6 +375,26 @@ function chain (spec) {
 }
 
 function accountHistory (spec) {
+  return callRainode(spec)
+}
+
+function accountGet (spec) {
+  return callRainode(spec)
+}
+
+function accountInfo (spec) {
+  return callRainode(spec)
+}
+
+function accountKey (spec) {
+  return callRainode(spec)
+}
+
+function validateAccountNumber (spec) {
+  return callRainode(spec)
+}
+
+function doConversion (spec) {
   return callRainode(spec)
 }
 
