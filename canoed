@@ -541,6 +541,8 @@ function handleCanary (hash) {
 function handleRaiCallback (blk) {
   var blk2 = JSON.parse(blk.block)
 
+  // winston.debug('Block: ' + JSON.stringify(blk))
+
   // Check for canaries
   handleCanary(blk.hash)
 
@@ -559,13 +561,13 @@ function handleRaiCallback (blk) {
     // Switch on block type
     switch (blkType) {
       case 'state':
-        winston.debug('Is send: ' + (blk2.is_send === 'true'))
+        winston.debug('Is send: ' + (blk.is_send === 'true'))
         eachWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
             // We only serve state blocks to Canoe protocol v1+
             // and we know that they register a meta object
             if (meta) {
-              if (!publishedTo.has(publishedTo)) {
+              if (!publishedTo.has(wallet)) {
                 publishedTo.add(wallet)
                 publishBlock('wallet/' + wallet + '/block/state', blk)
               }
@@ -574,14 +576,14 @@ function handleRaiCallback (blk) {
             }
           }
           // If a send we also need to publish to receiving wallet, if we have it
-          if (blk2.is_send === 'true') {
+          if (blk.is_send === 'true') {
             winston.debug('Link as account: ' + (blk2.link_as_account))
             eachWalletForAccount(blk2.link_as_account, function (wallet, meta) {
               if (wallet) {
                 // We only serve state blocks to Canoe protocol v1+
                 // and we know that they register a meta object
                 if (meta) {
-                  if (!publishedTo.has(publishedTo)) {
+                  if (!publishedTo.has(wallet)) {
                     publishedTo.add(wallet)
                     publishBlock('wallet/' + wallet + '/block/state', blk)
                   }
@@ -605,7 +607,7 @@ function handleRaiCallback (blk) {
         eachWalletForAccount(blk2.destination, function (wallet, meta) {
           if (wallet) {
             winston.debug('Send to: ' + blk2.destination + ' wallet: ' + wallet.toString())
-            if (!publishedTo.has(publishedTo)) {
+            if (!publishedTo.has(wallet)) {
               publishedTo.add(wallet)
               publishBlock('wallet/' + wallet + '/block/send', blk)
             }
@@ -614,7 +616,7 @@ function handleRaiCallback (blk) {
           eachWalletForAccount(account, function (wallet, meta) {
             if (wallet) {
               winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
-              if (!publishedTo.has(publishedTo)) {
+              if (!publishedTo.has(wallet)) {
                 publishedTo.add(wallet)
                 publishBlock('wallet/' + wallet + '/block/send', blk)
               }
