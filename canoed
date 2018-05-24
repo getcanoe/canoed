@@ -575,25 +575,25 @@ function handleRaiCallback (blk) {
               winston.warn('State block received for Canoe not capable of handling it')
             }
           }
-          // If a send we also need to publish to receiving wallet, if we have it
-          if (blk.is_send === 'true') {
-            winston.debug('Link as account: ' + (blk2.link_as_account))
-            eachWalletForAccount(blk2.link_as_account, function (wallet, meta) {
-              if (wallet) {
-                // We only serve state blocks to Canoe protocol v1+
-                // and we know that they register a meta object
-                if (meta) {
-                  if (!publishedTo.has(wallet)) {
-                    publishedTo.add(wallet)
-                    publishBlock('wallet/' + wallet + '/block/state', blk)
-                  }
-                } else {
-                  winston.warn('State block received for Canoe not capable of handling it')
-                }
-              }
-            })
-          }
         })
+        // If a send we also need to publish to receiving wallet, if we have it
+        if (blk.is_send === 'true') {
+          winston.debug('Link as account: ' + (blk2.link_as_account))
+          eachWalletForAccount(blk2.link_as_account, function (wallet, meta) {
+            if (wallet) {
+              // We only serve state blocks to Canoe protocol v1+
+              // and we know that they register a meta object
+              if (meta) {
+                if (!publishedTo.has(wallet)) {
+                  publishedTo.add(wallet)
+                  publishBlock('wallet/' + wallet + '/block/state', blk)
+                }
+              } else {
+                winston.warn('State block received for Canoe not capable of handling it')
+              }
+            }
+          })
+        }
         return
       case 'open':
         eachWalletForAccount(account, function (wallet, meta) {
@@ -603,6 +603,16 @@ function handleRaiCallback (blk) {
         })
         return
       case 'send':
+        // Is this a send from one of our accounts?
+        eachWalletForAccount(account, function (wallet, meta) {
+          if (wallet) {
+            winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
+            if (!publishedTo.has(wallet)) {
+              publishedTo.add(wallet)
+              publishBlock('wallet/' + wallet + '/block/send', blk)
+            }
+          }
+        })
         // Is this a send to one of our accounts?
         eachWalletForAccount(blk2.destination, function (wallet, meta) {
           if (wallet) {
@@ -612,16 +622,6 @@ function handleRaiCallback (blk) {
               publishBlock('wallet/' + wallet + '/block/send', blk)
             }
           }
-          // Is this a send from one of our accounts?
-          eachWalletForAccount(account, function (wallet, meta) {
-            if (wallet) {
-              winston.debug('Send from: ' + account + ' wallet: ' + wallet.toString())
-              if (!publishedTo.has(wallet)) {
-                publishedTo.add(wallet)
-                publishBlock('wallet/' + wallet + '/block/send', blk)
-              }
-            }
-          })
         })
         return
       case 'receive':
