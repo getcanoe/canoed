@@ -18,6 +18,7 @@ const {promisify} = require('util') // Promises for redisClient
 const args = neodoc.run(`
 Usage:
   paddle [--config=<path>]
+  paddle log [<pattern>]
   paddle show
   paddle pubshared <file.json>
   paddle pub <file.json>
@@ -96,6 +97,9 @@ var asyncGet
 // Flag to indicate we have already subscribed to topics
 var subscribed = false
 
+// Are we logging all MQTT messages
+var logging = false
+
 // Read configuration
 function configure () {
   // Read config file if exists
@@ -165,12 +169,15 @@ function connectRedis () {
   })
 }
 
+function handleLogging (message) {
+  winston.debug('MQTT: ' + JSON.stringify(JSON.parse(message)))
+}
+
 // Connect to MQTT
 function connectMQTT (cb) {
   mqttClient = mqtt.connect(config.mqtt.url, config.mqtt.options)
   mqttClient.on('connect', function () {
     winston.info('Connected to MQTT server')
-    subscribe()
     cb()
   })
 
@@ -179,6 +186,9 @@ function connectMQTT (cb) {
     switch (topic) {
       case 'sharedconfig':
         return handleSharedConfig(message)
+    }
+    if (logging) {
+      return handleLogging(message)
     }
     winston.error('No handler for topic %s', topic)
   })
@@ -190,10 +200,10 @@ function publishSharedConfig (payload, cb) {
 }
 
 // Subscribe to control
-function subscribe () {
+function subscribe (topic) {
   if (!subscribed) {
     mqttClient.subscribe('sharedconfig')
-    winston.debug('Subscribed to selected topics')
+    winston.debug('Subscribed to ' + topic)
     // /+/ for wildcards
     subscribed = true
   }
@@ -371,7 +381,14 @@ if (args['--initialize']) {
   }
   if (args['show']) {
     connectMQTT(function () {
-      winston.debug('Done')
+      subscribe('sharedconfig')
+    })
+  }
+  if (args['log']) {
+    connectMQTT(function () {
+      logging = true
+      pattern = args['<pattern>']
+      subscribe(pattern)
     })
   }
 }
