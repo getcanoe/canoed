@@ -218,6 +218,7 @@ function connectMQTT () {
 }
 
 powQueue.process(function(job, done) {
+  //Call a open slave to process the data
   done(null, workObject)
 });
 
@@ -275,11 +276,7 @@ function handleWalletRegister (walletId, message) {
 function handleWalletWork (walletId, message) {
   var payload = JSON.parse(message)
   var hash = payload.hash
-  createWorkJob(hash, walletId).then((res) => {
-    winston.debug('Created job for ' + walletId + ', with hash ' + hash)
-  }, (err) => {
-    winston.error('Error creating work job: ' + err)
-  })
+  powQueue.add({hash:hash,walletId:walletId})
 }
 
 function handleBroadcastBlock (account, message) {
@@ -501,10 +498,6 @@ function eachWalletForAccount (account, cb) {
       }
     }
   })
-}
-
-function createWorkJob (hash, walletId) {
-
 }
 
 function setWalletForAccounts (accounts, value) {
