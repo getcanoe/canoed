@@ -94,9 +94,6 @@ var redisClient = null
 var asyncSet
 var asyncGet
 
-// Flag to indicate we have already subscribed to topics
-var subscribed = false
-
 // Are we logging all MQTT messages
 var logging = false
 
@@ -169,8 +166,8 @@ function connectRedis () {
   })
 }
 
-function handleLogging (message) {
-  winston.debug('MQTT: ' + JSON.stringify(JSON.parse(message)))
+function handleLogging (topic, message) {
+  winston.debug(topic + ': ' + JSON.stringify(JSON.parse(message)))
 }
 
 // Connect to MQTT
@@ -188,7 +185,7 @@ function connectMQTT (cb) {
         return handleSharedConfig(message)
     }
     if (logging) {
-      return handleLogging(message)
+      return handleLogging(topic, message)
     }
     winston.error('No handler for topic %s', topic)
   })
@@ -201,12 +198,9 @@ function publishSharedConfig (payload, cb) {
 
 // Subscribe to control
 function subscribe (topic) {
-  if (!subscribed) {
-    mqttClient.subscribe('sharedconfig')
-    winston.debug('Subscribed to ' + topic)
-    // /+/ for wildcards
-    subscribed = true
-  }
+  mqttClient.subscribe(topic)
+  winston.debug('Subscribed to ' + topic)
+  // /+/ for wildcards
 }
 
 function handleSharedConfig (message) {
@@ -387,7 +381,7 @@ if (args['--initialize']) {
   if (args['log']) {
     connectMQTT(function () {
       logging = true
-      pattern = args['<pattern>']
+      pattern = args['<pattern>'] || '#'
       subscribe(pattern)
     })
   }
