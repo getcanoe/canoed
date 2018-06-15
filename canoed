@@ -98,12 +98,15 @@ var asyncSetMembers
 var restServer = null
 
 // Patterns for topics
-var walletMqttRegex = mqttRegex('wallet/+id/accounts').exec // old one
-var walletRegisterMqttRegex = mqttRegex('wallet/+id/register').exec // new one, protocol v1
+var walletMqttRegex = mqttRegex('wallet/+id/+cmd').exec // 
 var broadcastMqttRegex = mqttRegex('broadcast/+account').exec
+var workerMqttRegex = mqttRegex('worker/+id/+cmd').exec
 
 // Flag to indicate we have already subscribed to topics
 var subscribed = false
+
+// We maintain a map of registered workers
+var workers = new Map()
 
 // Read configuration
 function configure () {
@@ -194,11 +197,11 @@ function connectMQTT () {
     }
     var params = walletMqttRegex(topic)
     if (params) {
-      return handleWalletAccounts(params.id, message)
+      return handleWalletMessage(params.id, params.cmd, message)
     }
-    params = walletRegisterMqttRegex(topic)
+    params = workerMqttRegex(topic)
     if (params) {
-      return handleWalletRegister(params.id, message)
+      return handleWorkerMessage(params.id, params.cmd, message)
     }
     params = broadcastMqttRegex(topic)
     if (params) {
@@ -221,10 +224,15 @@ function publishBlock (topic, payload) {
 // Subscribe to control
 function subscribe () {
   if (!subscribed) {
+    mqttClient.subscribe('worker/+/unregister')
+    mqttClient.subscribe('worker/+/register')
+    mqttClient.subscribe('worker/+/working')
+    mqttClient.subscribe('worker/+/answer')
     mqttClient.subscribe('sharedconfig')
     mqttClient.subscribe('control/canoed')
     mqttClient.subscribe('wallet/+/accounts')
     mqttClient.subscribe('wallet/+/register')
+    mqttClient.subscribe('wallet/+/requestwork')
     mqttClient.subscribe('broadcast/+') // account number
     winston.debug('Subscribed to selected topics')
     // /+/ for wildcards
@@ -240,6 +248,122 @@ function handleWalletAccounts (walletId, message) {
   }, (err) => {
     winston.error('Error setting wallet for accounts: ' + err)
   })
+}
+
+// PoW worker handling
+function handleWorkerMessage (workerId, cmd, message) {
+  var payload = JSON.parse(message)
+  switch (cmd) {
+    case 'register':
+      if (workers.has(workerId)) {
+        winston.info('Reregistering worker %s: %s', workerId, payload)
+      } else {
+        winston.info('Registering worker %s: %s', workerId, payload)
+      }
+      workers.set(workerId, {id: workerId, online: true, request: null, registered: new Date(), meta: payload})
+      return
+    case 'unregister':
+      var worker = workers.get(workerId)
+      if (worker) {
+        winston.info('Unregistering worker %s: %s', workerId, payload)
+        worker.online = false
+        worker.meta = payload
+      } else {
+        winston.warn('Missing worker to unregister: %s ', workerId)
+      }
+      return
+    case 'working':
+      var worker = workers.get(workerId)
+      if (worker) {
+        if (worker.request) {
+          worker.request.started = new Date()
+        } else {
+          winston.error('Got working message but missing request')
+        }
+      } else {
+        winston.error('Got working message from non registered worker')
+      }
+      return
+    case 'answer':
+      var worker = workers.get(workerId)
+      if (worker) {
+        if (worker.request) {
+          worker.request.work = payload.work
+          worker.request.done = new Date()
+          request.time = worker.request.done - worker.request.started
+          winston.debug('Calculating PoW took %s ms', request.time)
+          dispatchWorkAnswer(worker)
+        } else {
+          winston.error('Got answer message but missing request')
+        }
+      } else {
+        winston.error('Got answer message from non registered worker')
+      }
+      return
+    }
+    winston.error('No handler for worker %s, message %s', workerId, cmd)
+  }
+}
+
+// Messages coming from wallets
+function handleWalletMessage (walletId, cmd, message) {
+  var payload = JSON.parse(message)
+  switch (cmd) {
+    case 'accounts':
+      return handleWalletAccounts(walletId, message)
+    case 'register':
+      return handleWalletRegister(walletId, message)
+    case 'requestwork':
+      return handleWalletRequestWork(walletId, message)
+  }
+  winston.error('No handler for message %s from wallet %s', cmd, workerId)
+}
+
+function handleWalletRequestWork (walletId, message) {
+  var request = JSON.parse(message)
+  requst.timestamp = new Date()
+  winston.debug('Received PoW request from ' + walletId + ' hash ' + request.hash)
+  powRequests.push(request)
+  dispatchWorkRequest()
+}
+
+function findFreeWorker() {
+  workers.forEach(function (worker) {
+    if (worker.online && !worker.request) {
+      return worker
+    }
+  })
+  return null
+}
+
+function dispatchWorkRequest() {
+  var worker = findFreeWorker()
+  if (worker) {
+    var request = powRequests.shift()
+    request.requested = new Date()
+    worker.request = request
+    publishWorkRequest(worker)
+  }
+  winston.debug('All workers busy')
+}
+
+function dispatchWorkAnswer(worker) {
+  var request = worker.request
+  worker.request = null
+  publishWorkAnswer(request)
+  dispatchWorkRequest() // Check for next in request queue
+}
+
+function publishWorkRequest (worker) {
+  var payload = {hash: worker.request.hash}
+  winston.debug('Publishing pow request to %s', worker.id)
+  mqttClient.publish('worker/' + worker.id + '/request', JSON.stringify(payload), config.mqtt.powrequest.opts)
+}
+
+function publishWorkAnswer (request) {
+  var payload = {hash: request.hash, work: request.work, time: request.time, account: request.account}
+  winston.debug('Publishing pow to %s', request.from)
+  mqttClient.publish('wallet/' + request.from + '/work', JSON.stringify(payload), config.mqtt.powanswer.opts)
 }
 
 // Protocol v1 style registering
