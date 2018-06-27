@@ -553,6 +553,8 @@ function workGenerate (spec) {
   return callRainode(spec)
 }
 
+// This function was added as an extra precaution to make sure wallets don't mistakenly
+// generates sends when they really meant to make receives.
 function checkForBadSend (spec) {
   // Get previous hash
   try {
@@ -574,7 +576,7 @@ function checkForBadSend (spec) {
     if (newBalance.lt(balance)) {
       // Ok, a send it is. Do we have a valid block hash in link field? If so, then this was in fact intended as a receive for sure.
       var hashToCheck = block.link
-      callRainode({action: 'block', hash: hashToCheck}).then((obj) => {
+        return callRainode({action: 'block', hash: hashToCheck}).then((obj) => {
         if (obj.contents) {
           // Ooops! Bad block
             winston.error('Bad send block detected: ' + spec)
@@ -584,6 +586,9 @@ function checkForBadSend (spec) {
           return false
         }
       })
+      } else {
+        // Not a send, so we let it go
+        return false
     }
   })
   } catch (e) {
