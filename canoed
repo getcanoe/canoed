@@ -17,6 +17,8 @@ const redis = require('redis') // For maintaining session state
 const { Pool } = require('pg') // For proper database stuff
 const neodoc = require('neodoc') // For nice command line opts
 const {promisify} = require('util') // Promises for redisClient
+const compareVersions = require('compare-versions') // To use semver version matching
+const bigInt = require("big-integer")
 
 // Parse out command line
 const args = neodoc.run(`
@@ -53,6 +55,14 @@ var config = {
   redis: {
     host: 'localhost',
     port: 6379
+  },
+  wallets: {
+    accepted: [
+      {name: 'canoe', versions: ['>=0.9.12']}
+    ],
+    rejected: [
+      {name: 'canoe', versions: ['<0.9.12'], message: 'Canoe older than 0.9.12 is not allowed anymore since it has a bug that can in a specific scenario cause loss of funds, see https://github.com/getcanoe/canoe/issues/286'}
+    ]
   },
   mqtt: {
     url: 'tcp://localhost',
@@ -407,9 +417,9 @@ function startRESTServer () {
 
   // The RPC functions we offer Canoe
   restServer.post('/rpc', function (req, res) {
-    winston.debug('GET URL', req.url)
     var spec = req.body
     var action = req.body.action
+    winston.debug('ACTION:' + action + ' SPEC:' + spec)
     switch (action) {
       case 'create_server_account':
         return createAccount(spec).then((r) => { res.json(r) })
@@ -543,8 +553,39 @@ function workGenerate (spec) {
   return callRainode(spec)
 }
 
+function checkForBadSend(spec) {
+  // Get previous hash
+  var block = JSON.parse(spec.block)
+  var previous = block.previous
+  // First make a blocks_info call to find previous balance
+  return callRainode({action: 'blocks_info', hashes: [previous], balance: "true"}).then((obj) => {
+    var balance = bigInt(obj.blocks[previous].balance)
+    var newBalance = bigInt(block.balance)
+    if (newBalance.lt(balance)) {
+      // Ok, a send it is. Do we have a valid block hash in link field? If so, then this was in fact intended as a receive for sure.
+      var hashToCheck = block.link
+      callRainode({action: 'block', hash: hashToCheck}).then((obj) => {
+        if (obj.contents) {
+          // Ooops! Bad block
+          return true
+        } else {
+          return false
+        }
+      })
+    }
+  })
+}
+
 function processBlock (spec) {
+  // Extra validity check preventing receives turned into bad sends
+  checkForBadSend(spec).then((bad) => {
+    if (bad) {
+      winston.error('Bad send block detected: ' + spec)
+      return {status: 'error', 'Bad send block detected, wallet implementation wrong!'}
+    } else {
   return callRainode(spec)
+}
+  }
 }
 
 // Create a timestamp record for given block hash, in milliseconds
@@ -579,6 +620,47 @@ async function getTimestamp (hash) {
   } finally {
     client.release()
   }
+}
+
+// Semver checks on version
+function checkVersion (version, pattern) {
+  if (pattern.startsWith('<=')) {
+    return compareVersions(version, pattern.slice(2)) <= 0
+  } else if (pattern.startsWith('>=')) {
+    return compareVersions(version, pattern.slice(2)) >= 0
+  } else if (pattern.startsWith('<')) {
+    return compareVersions(version, pattern.slice(1)) < 0
+  } else if (pattern.startsWith('>')) {
+    return compareVersions(version, pattern.slice(1)) > 0
+  } else {
+    return compareVersions(version, pattern) === 0
+  }
+}
+
+function rejectionMessageForWallet (wallet) {
+  var name = wallet.name
+  var version = wallet.version
+  // Check for rejections first, shortcuts
+  config.wallets.rejected.forEach(function (walletSpec) {
+    if (wallet.name === walletSpec.name) {
+      walletSpec.versions.forEach(function (v) {
+        if (!checkVersion(version, v)) {
+          return {status: 'error', error: 'rejected', message: walletSpec.message}
+        }
+      })
+    }
+  })
+  // If no rejection, we need also a matching accept
+  config.wallets.accepted.forEach(function (walletSpec) {
+    if (name === walletSpec.name) {
+      walletSpec.versions.forEach(function (v) {
+        if (checkVersion(version, v)) {
+          return null // All is fine
+        }
+      })
+    }
+  })
+  return {status: 'error', error: 'not accepted', message: 'This wallet version is not accepted by the backend'}
 }
 
 // Create an account given a walletId, token and a tokenPass
