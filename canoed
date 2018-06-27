@@ -560,7 +560,7 @@ function checkForBadSend (spec) {
   var previous = block.previous
     if (previous === '0000000000000000000000000000000000000000000000000000000000000000') {
       // Open block, fine
-      return false
+      return Promise.resolve(false)
     }
   // First make a blocks_info call to find previous balance
   return callRainode({action: 'blocks_info', hashes: [previous], balance: 'true'}).then((obj) => {
@@ -580,13 +580,14 @@ function checkForBadSend (spec) {
             winston.error('Bad send block detected: ' + spec)
           return true
         } else {
+            // No contents means we did not hit a block, which means send is ok
           return false
         }
       })
     }
   })
   } catch (e) {
-    return true
+    return Promise.resolve(true)
 }
 }
 
