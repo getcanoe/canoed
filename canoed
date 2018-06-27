@@ -118,6 +118,9 @@ var subscribed = false
 // We maintain a map of registered workers
 var workers = new Map()
 
+// And a small queue of PoW requests
+var powRequests = []
+
 // Read configuration
 function configure () {
   // Read config file if exists
@@ -251,10 +254,9 @@ function subscribe () {
 }
 
 // Old style registering only accounts
-function handleWalletAccounts (walletId, message) {
-  var accounts = JSON.parse(message)
+function handleWalletAccounts (walletId, accounts) {
   setWalletForAccounts(accounts, walletId).then((res) => {
-    winston.debug('Set wallet ' + walletId + ' for accounts ' + message)
+    winston.debug('Set wallet ' + walletId + ' for accounts ' + JSON.stringify(accounts))
   }, (err) => {
     winston.error('Error setting wallet for accounts: ' + err)
   })
@@ -263,6 +265,7 @@ function handleWalletAccounts (walletId, message) {
 // PoW worker handling
 function handleWorkerMessage (workerId, cmd, message) {
   var payload = JSON.parse(message)
+  var worker
   switch (cmd) {
     case 'register':
       if (workers.has(workerId)) {
@@ -273,7 +276,7 @@ function handleWorkerMessage (workerId, cmd, message) {
       workers.set(workerId, {id: workerId, online: true, request: null, registered: new Date(), meta: payload})
       return
     case 'unregister':
-      var worker = workers.get(workerId)
+      worker = workers.get(workerId)
       if (worker) {
         winston.info('Unregistering worker %s: %s', workerId, payload)
         worker.online = false
@@ -283,7 +286,7 @@ function handleWorkerMessage (workerId, cmd, message) {
       }
       return
     case 'working':
-      var worker = workers.get(workerId)
+      worker = workers.get(workerId)
       if (worker) {
         if (worker.request) {
           worker.request.started = new Date()
@@ -295,7 +298,7 @@ function handleWorkerMessage (workerId, cmd, message) {
       }
       return
     case 'answer':
-      var worker = workers.get(workerId)
+      worker = workers.get(workerId)
       if (worker) {
         if (worker.request) {
           worker.request.work = payload.work
@@ -313,31 +316,29 @@ function handleWorkerMessage (workerId, cmd, message) {
     }
     winston.error('No handler for worker %s, message %s', workerId, cmd)
   }
-}
 
 // Messages coming from wallets
 function handleWalletMessage (walletId, cmd, message) {
   var payload = JSON.parse(message)
   switch (cmd) {
     case 'accounts':
-      return handleWalletAccounts(walletId, message)
+      return handleWalletAccounts(walletId, payload)
     case 'register':
-      return handleWalletRegister(walletId, message)
+      return handleWalletRegister(walletId, payload)
     case 'requestwork':
-      return handleWalletRequestWork(walletId, message)
+      return handleWalletRequestWork(walletId, payload)
   }
-  winston.error('No handler for message %s from wallet %s', cmd, workerId)
+  winston.error('No handler for message %s from wallet %s', cmd, walletId)
 }
 
-function handleWalletRequestWork (walletId, message) {
-  var request = JSON.parse(message)
-  requst.timestamp = new Date()
+function handleWalletRequestWork (walletId, request) {
+  request.timestamp = new Date()
   winston.debug('Received PoW request from ' + walletId + ' hash ' + request.hash)
   powRequests.push(request)
   dispatchWorkRequest()
 }
 
-function findFreeWorker() {
+function findFreeWorker () {
   workers.forEach(function (worker) {
     if (worker.online && !worker.request) {
       return worker
@@ -346,7 +347,7 @@ function findFreeWorker() {
   return null
 }
 
-function dispatchWorkRequest() {
+function dispatchWorkRequest () {
   var worker = findFreeWorker()
   if (worker) {
     var request = powRequests.shift()
@@ -357,7 +358,7 @@ function dispatchWorkRequest() {
   winston.debug('All workers busy')
 }
 
-function dispatchWorkAnswer(worker) {
+function dispatchWorkAnswer (worker) {
   var request = worker.request
   worker.request = null
   publishWorkAnswer(request)
@@ -377,8 +378,7 @@ function publishWorkAnswer (request) {
 }
 
 // Protocol v1 style registering
-function handleWalletRegister (walletId, message) {
-  var meta = JSON.parse(message)
+function handleWalletRegister (walletId, meta) {
   // Pick out accounts and remove them from meta
   var accounts = meta.accounts
   delete meta.accounts
