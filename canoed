@@ -558,7 +558,7 @@ function checkForBadSend (spec) {
   try {
   var block = JSON.parse(spec.block)
   var previous = block.previous
-    if (!previous) {
+    if (previous === '0000000000000000000000000000000000000000000000000000000000000000') {
       // Open block, fine
       return false
     }
