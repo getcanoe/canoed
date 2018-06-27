@@ -578,7 +578,7 @@ function checkForBadSend (spec) {
 
 function processBlock (spec) {
   // Extra validity check preventing receives turned into bad sends
-  checkForBadSend(spec).then((bad) => {
+  return checkForBadSend(spec).then((bad) => {
     if (bad) {
       winston.error('Bad send block detected: ' + spec)
       return {status: 'error', message: 'Bad send block detected, wallet implementation wrong!'}
