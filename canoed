@@ -581,7 +581,7 @@ function processBlock (spec) {
   checkForBadSend(spec).then((bad) => {
     if (bad) {
       winston.error('Bad send block detected: ' + spec)
-      return {status: 'error', 'Bad send block detected, wallet implementation wrong!'}
+      return {status: 'error', message: 'Bad send block detected, wallet implementation wrong!'}
     } else {
   return callRainode(spec)
 }
