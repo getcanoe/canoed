@@ -419,7 +419,7 @@ function startRESTServer () {
   restServer.post('/rpc', function (req, res) {
     var spec = req.body
     var action = req.body.action
-    winston.debug('ACTION:' + action + ' SPEC:' + spec)
+    winston.debug('ACTION:' + action + ' SPEC:' + JSON.stringify(spec))
     switch (action) {
       case 'create_server_account':
         return createAccount(spec).then((r) => { res.json(r) })
