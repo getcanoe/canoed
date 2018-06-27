@@ -568,6 +568,7 @@ function checkForBadSend (spec) {
   return callRainode({action: 'blocks_info', hashes: [previous], balance: 'true'}).then((obj) => {
       if (!obj.blocks) {
         // Previous block is not found, so bad block for a different reason
+        winston.error('No previous block found when doing bad send check: ' + JSON.stringify(obj))
         return true
       }
       var blk = obj.blocks[previous]
@@ -579,7 +580,7 @@ function checkForBadSend (spec) {
         return callRainode({action: 'block', hash: hashToCheck}).then((obj) => {
         if (obj.contents) {
           // Ooops! Bad block
-            winston.error('Bad send block detected: ' + spec)
+            winston.error('Bad send block detected: ' + JSON.stringify(spec))
           return true
         } else {
             // No contents means we did not hit a block, which means send is ok
@@ -592,6 +593,7 @@ function checkForBadSend (spec) {
     }
   })
   } catch (e) {
+    winston.error('Exception during bad send check: ' + e)
     return Promise.resolve(true)
 }
 }
