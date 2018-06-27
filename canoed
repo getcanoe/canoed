@@ -553,12 +553,12 @@ function workGenerate (spec) {
   return callRainode(spec)
 }
 
-function checkForBadSend(spec) {
+function checkForBadSend (spec) {
   // Get previous hash
   var block = JSON.parse(spec.block)
   var previous = block.previous
   // First make a blocks_info call to find previous balance
-  return callRainode({action: 'blocks_info', hashes: [previous], balance: "true"}).then((obj) => {
+  return callRainode({action: 'blocks_info', hashes: [previous], balance: 'true'}).then((obj) => {
     var balance = bigInt(obj.blocks[previous].balance)
     var newBalance = bigInt(block.balance)
     if (newBalance.lt(balance)) {
@@ -585,8 +585,8 @@ function processBlock (spec) {
     } else {
   return callRainode(spec)
 }
+  })
   }
-}
 
 // Create a timestamp record for given block hash, in milliseconds
 async function createTimestamp (hash) {
