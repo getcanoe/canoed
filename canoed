@@ -555,11 +555,21 @@ function workGenerate (spec) {
 
 function checkForBadSend (spec) {
   // Get previous hash
+  try {
   var block = JSON.parse(spec.block)
   var previous = block.previous
+    if (!previous) {
+      // Open block, fine
+      return false
+    }
   // First make a blocks_info call to find previous balance
   return callRainode({action: 'blocks_info', hashes: [previous], balance: 'true'}).then((obj) => {
-    var balance = bigInt(obj.blocks[previous].balance)
+      if (!obj.blocks) {
+        // Previous block is not found, so bad block for a different reason
+        return true
+      }
+      var blk = obj.blocks[previous]
+      var balance = bigInt(blk.balance)
     var newBalance = bigInt(block.balance)
     if (newBalance.lt(balance)) {
       // Ok, a send it is. Do we have a valid block hash in link field? If so, then this was in fact intended as a receive for sure.
@@ -567,6 +577,7 @@ function checkForBadSend (spec) {
       callRainode({action: 'block', hash: hashToCheck}).then((obj) => {
         if (obj.contents) {
           // Ooops! Bad block
+            winston.error('Bad send block detected: ' + spec)
           return true
         } else {
           return false
@@ -574,14 +585,16 @@ function checkForBadSend (spec) {
       })
     }
   })
+  } catch (e) {
+    return true
+}
 }
 
 function processBlock (spec) {
   // Extra validity check preventing receives turned into bad sends
   return checkForBadSend(spec).then((bad) => {
     if (bad) {
-      winston.error('Bad send block detected: ' + spec)
-      return {status: 'error', message: 'Bad send block detected, wallet implementation wrong!'}
+      return {status: 'error', message: 'Processing block failed'}
     } else {
   return callRainode(spec)
 }
