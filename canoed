@@ -691,7 +691,8 @@ function rejectionMessageForWallet (wallet) {
 
 // Create an account given a walletId, token and a tokenPass
 async function createAccount (spec) {
-  // Is this an old wallet not sending us version and name?
+  /* Not yet enabled, we need to add this to clients first...
+   Is this an old wallet not sending us version and name?
   if (!spec.name) {
     // We do not allow older wallets anymore, delete account
     await deleteAccount(spec)
@@ -702,6 +703,7 @@ async function createAccount (spec) {
   if (rejection) {
     return rejection
   }
+  */
   var values = [spec.wallet, spec.token, spec.tokenPass,
     spec.pubacl || config.mqtt.pubacl,
     spec.subacl || config.mqtt.subacl]
