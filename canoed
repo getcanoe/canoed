@@ -417,34 +417,34 @@ function startRESTServer () {
 
   // The RPC functions we offer Canoe
   restServer.post('/rpc', function (req, res) {
-
     var spec = req.body
     var action = req.body.action
+
     function log (result) {
-      winston.debug('ACTION ' + action + ': ' + JSON.stringify(spec))
-      winston.debug('RESULT: ' + JSON.stringify(result))
+      winston.debug('POST:' + JSON.stringify(spec))
+      winston.debug('ANSWER: ' + JSON.stringify(result))
       return result
     }
-    winston.debug('ACTION:' + action + ' SPEC:' + JSON.stringify(spec))
+
     switch (action) {
       case 'create_server_account':
-        return log(createAccount(spec).then((r) => { res.json(r) }))
+        return createAccount(spec).then((r) => { res.json(log(r)) })
       case 'canoe_server_status':
         return res.json(canoeServerStatus(spec))
       case 'quota_full':
         return res.json(quotaFull(spec))
       case 'process':
-        return log(processBlock(spec).then((r) => { res.json(r) }))
+        return processBlock(spec).then((r) => { res.json(r) })
       case 'available_supply':
         return availableSupply(spec).then((r) => { res.json(r) })
       case 'ledger':
         return ledger(spec).then((r) => { res.json(r) })
       case 'chain':
-        return log(chain(spec).then((r) => { res.json(r) }))
+        return chain(spec).then((r) => { res.json(r) })
       case 'accounts_pending':
-        return log(accountsPending(spec).then((r) => { res.json(r) }))
+        return accountsPending(spec).then((r) => { res.json(r) })
       case 'account_history':
-        return log(accountHistory(spec).then((r) => { res.json(r) }))
+        return accountHistory(spec).then((r) => { res.json(r) })
       case 'account_get':
         return accountGet(spec).then((r) => { res.json(r) })
       case 'account_info':
@@ -466,9 +466,9 @@ function startRESTServer () {
       case 'rai_to_raw':
         return doConversion(spec).then((r) => { res.json(r) })
       case 'blocks_info':
-        return log(blocksInfo(spec).then((r) => { res.json(r) }))
+        return blocksInfo(spec).then((r) => { res.json(r) })
       case 'work_generate':
-        return log(workGenerate(spec).then((r) => { res.json(r) }))
+        return workGenerate(spec).then((r) => { res.json(r) })
       default:
         return res.json({error: 'unknown action'})
     }
