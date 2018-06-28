@@ -313,9 +313,9 @@ function handleWorkerMessage (workerId, cmd, message) {
         winston.error('Got answer message from non registered worker')
       }
       return
-    }
-    winston.error('No handler for worker %s, message %s', workerId, cmd)
   }
+  winston.error('No handler for worker %s, message %s', workerId, cmd)
+}
 
 // Messages coming from wallets
 function handleWalletMessage (walletId, cmd, message) {
@@ -417,28 +417,34 @@ function startRESTServer () {
 
   // The RPC functions we offer Canoe
   restServer.post('/rpc', function (req, res) {
+
     var spec = req.body
     var action = req.body.action
+    function log (result) {
+      winston.debug('ACTION ' + action + ': ' + JSON.stringify(spec))
+      winston.debug('RESULT: ' + JSON.stringify(result))
+      return result
+    }
     winston.debug('ACTION:' + action + ' SPEC:' + JSON.stringify(spec))
     switch (action) {
       case 'create_server_account':
-        return createAccount(spec).then((r) => { res.json(r) })
+        return log(createAccount(spec).then((r) => { res.json(r) }))
       case 'canoe_server_status':
         return res.json(canoeServerStatus(spec))
       case 'quota_full':
         return res.json(quotaFull(spec))
       case 'process':
-        return processBlock(spec).then((r) => { res.json(r) })
+        return log(processBlock(spec).then((r) => { res.json(r) }))
       case 'available_supply':
         return availableSupply(spec).then((r) => { res.json(r) })
       case 'ledger':
         return ledger(spec).then((r) => { res.json(r) })
       case 'chain':
-        return chain(spec).then((r) => { res.json(r) })
+        return log(chain(spec).then((r) => { res.json(r) }))
       case 'accounts_pending':
-        return accountsPending(spec).then((r) => { res.json(r) })
+        return log(accountsPending(spec).then((r) => { res.json(r) }))
       case 'account_history':
-        return accountHistory(spec).then((r) => { res.json(r) })
+        return log(accountHistory(spec).then((r) => { res.json(r) }))
       case 'account_get':
         return accountGet(spec).then((r) => { res.json(r) })
       case 'account_info':
@@ -460,10 +466,9 @@ function startRESTServer () {
       case 'rai_to_raw':
         return doConversion(spec).then((r) => { res.json(r) })
       case 'blocks_info':
-        return blocksInfo(spec).then((r) => { res.json(r) })
+        return log(blocksInfo(spec).then((r) => { res.json(r) }))
       case 'work_generate':
-        winston.log()
-        return workGenerate(spec).then((r) => { res.json(r) })
+        return log(workGenerate(spec).then((r) => { res.json(r) }))
       default:
         return res.json({error: 'unknown action'})
     }
@@ -549,7 +554,7 @@ async function blocksInfo (spec) {
   })
 }
 
-function workGenerate (spec) {
+  function workGenerate (spec) {
   return callRainode(spec)
 }
 
@@ -558,14 +563,14 @@ function workGenerate (spec) {
 function checkForBadSend (spec) {
   // Get previous hash
   try {
-  var block = JSON.parse(spec.block)
-  var previous = block.previous
+    var block = JSON.parse(spec.block)
+    var previous = block.previous
     if (previous === '0000000000000000000000000000000000000000000000000000000000000000') {
       // Open block, fine
       return Promise.resolve(false)
     }
-  // First make a blocks_info call to find previous balance
-  return callRainode({action: 'blocks_info', hashes: [previous], balance: 'true'}).then((obj) => {
+    // First make a blocks_info call to find previous balance
+    return callRainode({action: 'blocks_info', hashes: [previous], balance: 'true'}).then((obj) => {
       if (!obj.blocks) {
         // Previous block is not found, so bad block for a different reason
         winston.error('No previous block found when doing bad send check: ' + JSON.stringify(obj))
@@ -573,29 +578,29 @@ function checkForBadSend (spec) {
       }
       var blk = obj.blocks[previous]
       var balance = bigInt(blk.balance)
-    var newBalance = bigInt(block.balance)
-    if (newBalance.lt(balance)) {
-      // Ok, a send it is. Do we have a valid block hash in link field? If so, then this was in fact intended as a receive for sure.
-      var hashToCheck = block.link
+      var newBalance = bigInt(block.balance)
+      if (newBalance.lt(balance)) {
+        // Ok, a send it is. Do we have a valid block hash in link field? If so, then this was in fact intended as a receive for sure.
+        var hashToCheck = block.link
         return callRainode({action: 'block', hash: hashToCheck}).then((obj) => {
-        if (obj.contents) {
-          // Ooops! Bad block
+          if (obj.contents) {
+            // Ooops! Bad block
             winston.error('Bad send block detected: ' + JSON.stringify(spec))
-          return true
-        } else {
+            return true
+          } else {
             // No contents means we did not hit a block, which means send is ok
-          return false
-        }
-      })
+            return false
+          }
+        })
       } else {
         // Not a send, so we let it go
         return false
-    }
-  })
+      }
+    })
   } catch (e) {
     winston.error('Exception during bad send check: ' + e)
     return Promise.resolve(true)
-}
+  }
 }
 
 function processBlock (spec) {
@@ -604,10 +609,10 @@ function processBlock (spec) {
     if (bad) {
       return {status: 'error', message: 'Processing block failed'}
     } else {
-  return callRainode(spec)
-}
+      return callRainode(spec)
+    }
   })
-  }
+}
 
 // Create a timestamp record for given block hash, in milliseconds
 async function createTimestamp (hash) {
@@ -686,6 +691,17 @@ function rejectionMessageForWallet (wallet) {
 
 // Create an account given a walletId, token and a tokenPass
 async function createAccount (spec) {
+  // Is this an old wallet not sending us version and name?
+  if (!spec.name) {
+    // We do not allow older wallets anymore, delete account
+    await deleteAccount(spec)
+    return {status: 'error', message: 'Old wallets no longer can create account without passing name and version'}
+  }
+  // Do we reject this wallet?
+  var rejection = rejectionMessageForWallet(spec.wallet)
+  if (rejection) {
+    return rejection
+  }
   var values = [spec.wallet, spec.token, spec.tokenPass,
     spec.pubacl || config.mqtt.pubacl,
     spec.subacl || config.mqtt.subacl]
@@ -716,6 +732,23 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
     return {status: 'ok'}
   } catch (e) {
     winston.error('Error creating account: ' + e)
+    return {error: '' + e}
+  } finally {
+    client.release()
+  }
+}
+
+async function deleteAccount (spec) {
+  var values = [spec.wallet]
+  var sql = `DELETE FROM vmq_auth_acl WHERE client_id = $1;`
+  const client = await pool.connect()
+  try {
+    winston.debug('Deleting account: ' + JSON.stringify(values))
+    await client.query(sql, values)
+    winston.debug('Deleted account: ' + JSON.stringify(values))
+    return {status: 'ok'}
+  } catch (e) {
+    winston.error('Error deleting account: ' + e)
     return {error: '' + e}
   } finally {
     client.release()
@@ -884,7 +917,6 @@ function callRainode (payload) {
           reject(err)
         } else {
           var answer = JSON.parse(body)
-          winston.debug('ANSWER: ', JSON.stringify(answer))
           resolve(answer)
         }
       }
