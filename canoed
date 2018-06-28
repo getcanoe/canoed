@@ -760,7 +760,6 @@ async function deleteAccount (spec) {
 // }
 
 function eachWalletForAccount (account, cb) {
-  winston.debug('Get wallet for account: ' + account)
   redisClient.smembers('accounts:' + account, function (err, values) {
     if (err) throw err
     if (values) {
@@ -821,7 +820,6 @@ function handleRaiCallback (blk) {
     // Switch on block type
     switch (blkType) {
       case 'state':
-        winston.debug('Is send: ' + (blk.is_send === 'true'))
         eachWalletForAccount(account, function (wallet, meta) {
           if (wallet) {
             // We only serve state blocks to Canoe protocol v1+
@@ -838,7 +836,6 @@ function handleRaiCallback (blk) {
         })
         // If a send we also need to publish to receiving wallet, if we have it
         if (blk.is_send === 'true') {
-          winston.debug('Link as account: ' + (blk2.link_as_account))
           eachWalletForAccount(blk2.link_as_account, function (wallet, meta) {
             if (wallet) {
               // We only serve state blocks to Canoe protocol v1+
