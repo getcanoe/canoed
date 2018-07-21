@@ -668,25 +668,25 @@ function rejectionMessageForWallet (wallet) {
   var name = wallet.name
   var version = wallet.version
   // Check for rejections first, shortcuts
-  config.wallets.rejected.forEach(function (walletSpec) {
-    if (wallet.name === walletSpec.name) {
-      walletSpec.versions.forEach(function (v) {
-        if (!checkVersion(version, v)) {
+  for (let walletSpec of config.wallets.rejected) {
+    if (name === walletSpec.name) {
+      for (let v of walletSpec.versions) {
+        if (checkVersion(version, v)) {
           return {status: 'error', error: 'rejected', message: walletSpec.message}
         }
-      })
+      }
     }
-  })
+  }
   // If no rejection, we need also a matching accept
-  config.wallets.accepted.forEach(function (walletSpec) {
+  for (let walletSpec of config.wallets.accepted) {
     if (name === walletSpec.name) {
-      walletSpec.versions.forEach(function (v) {
+      for (let v of walletSpec.versions) {
         if (checkVersion(version, v)) {
           return null // All is fine
         }
-      })
+      }
     }
-  })
+  }
   return {status: 'error', error: 'not accepted', message: 'This wallet version is not accepted by the backend'}
 }
 
