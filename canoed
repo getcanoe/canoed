@@ -664,9 +664,7 @@ function checkVersion (version, pattern) {
   }
 }
 
-function rejectionMessageForWallet (wallet) {
-  var name = wallet.name
-  var version = wallet.version
+function rejectionMessageForWallet (name, version) {
   // Check for rejections first, shortcuts
   for (let walletSpec of config.wallets.rejected) {
     if (name === walletSpec.name) {
@@ -699,7 +697,7 @@ async function createAccount (spec) {
     return {status: 'error', message: 'Old wallets no longer can create account without passing name and version'}
   }
   // Do we reject this specific wallet?
-  var rejection = rejectionMessageForWallet(spec.wallet)
+  var rejection = rejectionMessageForWallet(spec.name, spec.version)
   if (rejection) {
     return rejection
   }
