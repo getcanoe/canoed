@@ -18,7 +18,7 @@ const { Pool } = require('pg') // For proper database stuff
 const neodoc = require('neodoc') // For nice command line opts
 const {promisify} = require('util') // Promises for redisClient
 const compareVersions = require('compare-versions') // To use semver version matching
-const bigInt = require("big-integer")
+const bigInt = require('big-integer')
 
 // Parse out command line
 const args = neodoc.run(`
@@ -108,7 +108,7 @@ var asyncSetMembers
 var restServer = null
 
 // Patterns for topics
-var walletMqttRegex = mqttRegex('wallet/+id/+cmd').exec // 
+var walletMqttRegex = mqttRegex('wallet/+id/+cmd').exec
 var broadcastMqttRegex = mqttRegex('broadcast/+account').exec
 var workerMqttRegex = mqttRegex('worker/+id/+cmd').exec
 
@@ -554,7 +554,7 @@ async function blocksInfo (spec) {
   })
 }
 
-  function workGenerate (spec) {
+function workGenerate (spec) {
   return callRainode(spec)
 }
 
@@ -692,19 +692,17 @@ function rejectionMessageForWallet (wallet) {
 
 // Create an account given a walletId, token and a tokenPass
 async function createAccount (spec) {
-  /* Not yet enabled, we need to add this to clients first...
-   Is this an old wallet not sending us version and name?
-  if (!spec.name) {
+  // Wallets need to send version and name or we reject
+  if (!spec.name || !spec.version) {
     // We do not allow older wallets anymore, delete account
     await deleteAccount(spec)
     return {status: 'error', message: 'Old wallets no longer can create account without passing name and version'}
   }
-  // Do we reject this wallet?
+  // Do we reject this specific wallet?
   var rejection = rejectionMessageForWallet(spec.wallet)
   if (rejection) {
     return rejection
   }
-  */
   var values = [spec.wallet, spec.token, spec.tokenPass,
     spec.pubacl || config.mqtt.pubacl,
     spec.subacl || config.mqtt.subacl]
