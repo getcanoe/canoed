@@ -693,12 +693,13 @@ async function createAccount (spec) {
   // Wallets need to send version and name or we reject
   if (!spec.name || !spec.version) {
     // We do not allow older wallets anymore, delete account
-    await deleteAccount(spec)
+    await deleteAccount(spec.wallet)
     return {status: 'error', message: 'Old wallets no longer can create account without passing name and version'}
   }
   // Do we reject this specific wallet?
   var rejection = rejectionMessageForWallet(spec.name, spec.version)
   if (rejection) {
+    await deleteAccount(spec.wallet)
     return rejection
   }
   var values = [spec.wallet, spec.token, spec.tokenPass,
@@ -737,8 +738,8 @@ INSERT INTO vmq_auth_acl (mountpoint, client_id, username, password, publish_acl
   }
 }
 
-async function deleteAccount (spec) {
-  var values = [spec.wallet]
+async function deleteAccount (walletId) {
+  var values = [walletId]
   var sql = `DELETE FROM vmq_auth_acl WHERE client_id = $1;`
   const client = await pool.connect()
   try {
