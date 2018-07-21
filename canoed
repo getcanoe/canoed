@@ -624,6 +624,7 @@ async function createTimestamp (hash) {
     return new Date(res.rows[0].timestamp).getTime()
   } catch (e) {
     winston.error('Error creating block: ' + e)
+    return null
   } finally {
     client.release()
   }
