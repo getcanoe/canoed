@@ -43,7 +43,7 @@ var config = {
     host: ''
   },
   rainode: {
-    host: '::1',
+    host: '[::1]',
     port: 7076
   },
   postgres: {
