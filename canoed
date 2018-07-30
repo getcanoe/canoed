@@ -39,17 +39,18 @@ var config = {
   },
   debug: false,
   server: {
-    port: 8080
+    port: 8080,
+    host: ''
   },
   rainode: {
-    host: '[::1]',
+    host: '::1',
     port: 7076
   },
   postgres: {
     user: 'canoe',
     host: 'localhost',
     database: 'canoe',
-    password: 'secretpassword',
+    password: 'secretpassword1',
     port: 5432
   },
   redis: {
@@ -481,7 +482,7 @@ function startRESTServer () {
     res.json({})
   })
 
-  restServer.listen(config.server.port)
+  restServer.listen(config.server.port, config.server.host)
   winston.info('Http server started on port ' + config.server.port)
 }
 
