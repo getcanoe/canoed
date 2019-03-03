@@ -580,12 +580,19 @@ function checkForBadSend (spec) {
       var balance = bigInt(blk.balance)
       var newBalance = bigInt(block.balance)
       if (newBalance.lt(balance)) {
-        // Ok, a send it is. Do we have a valid block hash in link field? If so, then this was in fact intended as a receive for sure.
+        // Ok, a send it is.
+        // Is it a send to burn account? We prevent that.
+        if (block.link === '0000000000000000000000000000000000000000000000000000000000000000') {
+          // Ooops! A Burn send
+          winston.error('Burn send block detected (and prevented): ' + JSON.stringify(spec))
+          return true
+        }
+        // Do we have a valid block hash in link field? If so, then this was in fact intended as a receive for sure.
         var hashToCheck = block.link
         return callRainode({action: 'block', hash: hashToCheck}).then((obj) => {
           if (obj.contents) {
             // Ooops! Bad block
-            winston.error('Bad send block detected: ' + JSON.stringify(spec))
+            winston.error('Bad send block detected (and prevented): ' + JSON.stringify(spec))
             return true
           } else {
             // No contents means we did not hit a block, which means send is ok
